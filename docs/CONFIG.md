@@ -143,6 +143,10 @@ ee + <16 байт ключа> + <домен маскировки>
 | `port` | int | `8081` | Порт API/WebUI; `0` — отключить management |
 | `token` | string | `""` | Токен API; пустой — без аутентификации |
 | `public_server` | string | `""` | Публичный IP/домен для tg:// ссылок в UI/API |
+| `service_name` | string | `phantom-proxy` | Имя systemd unit |
+| `service_unit_path` | string | `/etc/systemd/system/<name>.service` | Путь к unit-файлу (для purge) |
+| `allow_service_uninstall` | bool | `false` | Разрешить удаление через API/WebUI |
+| `uninstall_script` | string | `""` | Путь к `uninstall.sh` (подсказка при ручном удалении) |
 
 **Env:**
 
@@ -152,8 +156,11 @@ ee + <16 байт ключа> + <домен маскировки>
 | `PHANTOM_MANAGEMENT_PORT` | `management.port` |
 | `PHANTOM_MANAGEMENT_TOKEN` | `management.token` |
 | `PHANTOM_MANAGEMENT_PUBLIC_SERVER` | `management.public_server` |
+| `PHANTOM_MANAGEMENT_SERVICE_NAME` | `management.service_name` |
+| `PHANTOM_MANAGEMENT_ALLOW_SERVICE_UNINSTALL` | `management.allow_service_uninstall` |
+| `PHANTOM_MANAGEMENT_UNINSTALL_SCRIPT` | `management.uninstall_script` |
 
-> В production: смени `token`, не публикуй management наружу без reverse proxy с TLS.
+> В production: смени `token`, не публикуй management наружу без reverse proxy с TLS. Удаление сервиса через UI/API по умолчанию **выключено**.
 
 ---
 

@@ -1,6 +1,7 @@
 package ui
 
 import (
+	"bytes"
 	"fmt"
 	"html/template"
 	"net/http"
@@ -12,6 +13,7 @@ import (
 	"github.com/RioTwWks/PhantomProxy/internal/config"
 	"github.com/RioTwWks/PhantomProxy/internal/mtproto"
 	"github.com/RioTwWks/PhantomProxy/internal/runtime"
+	"github.com/RioTwWks/PhantomProxy/internal/service"
 	"github.com/RioTwWks/PhantomProxy/internal/user"
 )
 
@@ -19,18 +21,26 @@ const sessionCookie = "phantom_session"
 
 // Handler обслуживает WebUI.
 type Handler struct {
-	rt    *runtime.Runtime
-	token string
-	tmpl  *template.Template
+	rt   *runtime.Runtime
+	mgmt config.ManagementConfig
+	tmpl *template.Template
 }
 
 // NewHandler создаёт UI handler.
-func NewHandler(rt *runtime.Runtime, token string) *Handler {
-	tmpl := template.New("").Funcs(template.FuncMap{
+func NewHandler(rt *runtime.Runtime, mgmt config.ManagementConfig) *Handler {
+	var root *template.Template
+	root = template.New("").Funcs(template.FuncMap{
 		"formatBytes": formatBytes,
+		"render": func(name string, data any) (template.HTML, error) {
+			var buf bytes.Buffer
+			if err := root.ExecuteTemplate(&buf, name, data); err != nil {
+				return "", err
+			}
+			return template.HTML(buf.String()), nil
+		},
 	})
-	tmpl = template.Must(tmpl.ParseFS(Templates(), "*.html", "partials/*.html"))
-	return &Handler{rt: rt, token: token, tmpl: tmpl}
+	root = template.Must(root.ParseFS(Templates(), "*.html", "partials/*.html"))
+	return &Handler{rt: rt, mgmt: mgmt, tmpl: root}
 }
 
 // Register добавляет UI-маршруты на mux.
@@ -43,6 +53,7 @@ func (h *Handler) Register(mux *http.ServeMux) {
 	mux.HandleFunc("/ui/users/", h.withSession(h.handleUserAction))
 	mux.HandleFunc("/ui/settings", h.withSession(h.handleSettings))
 	mux.HandleFunc("/ui/reload", h.withSession(h.handleReload))
+	mux.HandleFunc("/ui/service/uninstall", h.withSession(h.handleServiceUninstall))
 	mux.HandleFunc("/ui/partials/stats", h.withSession(h.handlePartialStats))
 	mux.HandleFunc("/ui/partials/users-stats", h.withSession(h.handlePartialUsersStats))
 
@@ -57,7 +68,7 @@ func (h *Handler) Register(mux *http.ServeMux) {
 
 func (h *Handler) withSession(next http.HandlerFunc) http.HandlerFunc {
 	return func(w http.ResponseWriter, r *http.Request) {
-		if h.token != "" && !h.hasSession(r) {
+		if h.mgmt.Token != "" && !h.hasSession(r) {
 			http.Redirect(w, r, "/ui/login?next="+url.QueryEscape(r.URL.Path), http.StatusSeeOther)
 			return
 		}
@@ -66,17 +77,17 @@ func (h *Handler) withSession(next http.HandlerFunc) http.HandlerFunc {
 }
 
 func (h *Handler) hasSession(r *http.Request) bool {
-	if h.token == "" {
+	if h.mgmt.Token == "" {
 		return true
 	}
 	c, err := r.Cookie(sessionCookie)
-	return err == nil && c.Value == h.token
+	return err == nil && c.Value == h.mgmt.Token
 }
 
 func (h *Handler) setSession(w http.ResponseWriter) {
 	http.SetCookie(w, &http.Cookie{
 		Name:     sessionCookie,
-		Value:    h.token,
+		Value:    h.mgmt.Token,
 		Path:     "/",
 		HttpOnly: true,
 		SameSite: http.SameSiteLaxMode,
@@ -85,7 +96,7 @@ func (h *Handler) setSession(w http.ResponseWriter) {
 }
 
 func (h *Handler) handleLogin(w http.ResponseWriter, r *http.Request) {
-	if h.token == "" || h.hasSession(r) {
+	if h.mgmt.Token == "" || h.hasSession(r) {
 		http.Redirect(w, r, "/ui/", http.StatusSeeOther)
 		return
 	}
@@ -98,7 +109,7 @@ func (h *Handler) handleLogin(w http.ResponseWriter, r *http.Request) {
 			h.render(w, "login.html", map[string]any{"Error": "некорректная форма"})
 			return
 		}
-		if r.FormValue("token") != h.token {
+		if r.FormValue("token") != h.mgmt.Token {
 			h.render(w, "login.html", map[string]any{"Error": "неверный токен"})
 			return
 		}
@@ -218,6 +229,39 @@ func (h *Handler) handleReload(w http.ResponseWriter, r *http.Request) {
 	http.Redirect(w, r, "/ui/settings?flash="+url.QueryEscape("Конфигурация перезагружена"), http.StatusSeeOther)
 }
 
+func (h *Handler) handleServiceUninstall(w http.ResponseWriter, r *http.Request) {
+	if r.Method != http.MethodPost {
+		http.Error(w, "method not allowed", http.StatusMethodNotAllowed)
+		return
+	}
+	if !h.mgmt.AllowServiceUninstall {
+		http.Redirect(w, r, "/ui/settings?error="+url.QueryEscape("Удаление сервиса отключено в конфигурации"), http.StatusSeeOther)
+		return
+	}
+	if err := r.ParseForm(); err != nil {
+		http.Redirect(w, r, "/ui/settings?error="+url.QueryEscape("некорректная форма"), http.StatusSeeOther)
+		return
+	}
+	if err := service.ValidateConfirm(r.FormValue("confirm")); err != nil {
+		http.Redirect(w, r, "/ui/settings?error="+url.QueryEscape(err.Error()), http.StatusSeeOther)
+		return
+	}
+
+	purge := r.FormValue("purge") == "on" || r.FormValue("purge") == "true"
+	svcCfg := service.FromManagement(
+		h.mgmt.ServiceName,
+		h.mgmt.ServiceUnitPath,
+		h.mgmt.UninstallScript,
+		h.mgmt.AllowServiceUninstall,
+	)
+	result := service.ScheduleUninstall(svcCfg, purge)
+	msg := result.Message
+	if result.Command != "" {
+		msg += ". Команда: " + result.Command
+	}
+	http.Redirect(w, r, "/ui/settings?flash="+url.QueryEscape(msg), http.StatusSeeOther)
+}
+
 func (h *Handler) createUser(r *http.Request) error {
 	name := strings.TrimSpace(r.FormValue("name"))
 	if name == "" {
@@ -270,9 +314,10 @@ func (h *Handler) dashboardData() map[string]any {
 	cfg := h.rt.Snapshot()
 	snap := h.rt.Stats.Snapshot()
 	return map[string]any{
-		"Title":      "Дашборд",
-		"Active":     "dashboard",
-		"Stats":      snap,
+		"Title":         "Дашборд",
+		"Active":        "dashboard",
+		"PageContent":   "dashboard_content",
+		"Stats":         snap,
 		"UsersCount": len(h.rt.Users.Users()),
 		"UptimeText": formatDuration(h.rt.Uptime()),
 		"ListenAddr": cfg.Addr(),
@@ -283,9 +328,10 @@ func (h *Handler) dashboardData() map[string]any {
 func (h *Handler) usersPageData(r *http.Request, errMsg string) map[string]any {
 	server, port := h.publicEndpoint()
 	return map[string]any{
-		"Title":  "Пользователи",
-		"Active": "users",
-		"Users":  h.rt.Users.ListViews(server, port),
+		"Title":       "Пользователи",
+		"Active":      "users",
+		"PageContent": "users_content",
+		"Users":       h.rt.Users.ListViews(server, port),
 		"Flash":  r.URL.Query().Get("flash"),
 		"Error":  firstNonEmpty(errMsg, r.URL.Query().Get("error")),
 	}
@@ -294,13 +340,20 @@ func (h *Handler) usersPageData(r *http.Request, errMsg string) map[string]any {
 func (h *Handler) settingsPageData(r *http.Request, errMsg string) map[string]any {
 	cfg := h.rt.Snapshot()
 	settings := config.SettingsFromConfig(cfg)
+	serviceName := h.mgmt.ServiceName
+	if serviceName == "" {
+		serviceName = "phantom-proxy"
+	}
 	return map[string]any{
-		"Title":          "Настройки",
-		"Active":         "settings",
-		"Settings":       settings,
-		"AllowedJA3Text": strings.Join(settings.AllowedJA3, ", "),
-		"Flash":          r.URL.Query().Get("flash"),
-		"Error":          firstNonEmpty(errMsg, r.URL.Query().Get("error")),
+		"Title":                 "Настройки",
+		"Active":                "settings",
+		"PageContent":           "settings_content",
+		"Settings":              settings,
+		"AllowedJA3Text":        strings.Join(settings.AllowedJA3, ", "),
+		"AllowServiceUninstall": h.mgmt.AllowServiceUninstall,
+		"ServiceName":           serviceName,
+		"Flash":                 r.URL.Query().Get("flash"),
+		"Error":                 firstNonEmpty(errMsg, r.URL.Query().Get("error")),
 	}
 }
 

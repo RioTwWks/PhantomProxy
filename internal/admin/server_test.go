@@ -125,4 +125,82 @@ func TestAdminAPIUsersAndStats(t *testing.T) {
 			t.Fatalf("status = %d", resp.StatusCode)
 		}
 	})
+
+	t.Run("service_uninstall_disabled", func(t *testing.T) {
+		body := bytes.NewBufferString(`{"confirm":"УДАЛИТЬ","purge":false}`)
+		req, _ := http.NewRequest(http.MethodPost, ts.URL+"/api/v1/service/uninstall", body)
+		req.Header.Set("Authorization", "Bearer test-token")
+		req.Header.Set("Content-Type", "application/json")
+		resp, err := http.DefaultClient.Do(req)
+		if err != nil {
+			t.Fatal(err)
+		}
+		defer resp.Body.Close()
+		if resp.StatusCode != http.StatusForbidden {
+			t.Fatalf("status = %d", resp.StatusCode)
+		}
+	})
+}
+
+func TestAdminAPIServiceUninstallEnabled(t *testing.T) {
+	secret, err := mtproto.ParseSecret("ee367a189aee18fa31c190054efd4a8e9573746f726167652e676f6f676c65617069732e636f6d")
+	if err != nil {
+		t.Fatal(err)
+	}
+	mgr, err := user.NewManager([]user.User{{Name: "alice", Secret: secret, Enabled: true}}, nil, nil)
+	if err != nil {
+		t.Fatal(err)
+	}
+
+	mgmt := config.ManagementConfig{
+		Host:                  "127.0.0.1",
+		Port:                  18082,
+		Token:                 "test-token",
+		AllowServiceUninstall: true,
+		ServiceName:           "phantom-proxy",
+	}
+	rt := runtime.New("", config.Config{Management: mgmt}, mgr, stats.New())
+	srv := New(rt, mgmt)
+	ts := httptest.NewServer(srv.server.Handler)
+	defer ts.Close()
+
+	t.Run("bad_confirm", func(t *testing.T) {
+		body := bytes.NewBufferString(`{"confirm":"delete","purge":false}`)
+		req, _ := http.NewRequest(http.MethodPost, ts.URL+"/api/v1/service/uninstall", body)
+		req.Header.Set("Authorization", "Bearer test-token")
+		req.Header.Set("Content-Type", "application/json")
+		resp, err := http.DefaultClient.Do(req)
+		if err != nil {
+			t.Fatal(err)
+		}
+		defer resp.Body.Close()
+		if resp.StatusCode != http.StatusBadRequest {
+			t.Fatalf("status = %d", resp.StatusCode)
+		}
+	})
+
+	t.Run("ok", func(t *testing.T) {
+		body := bytes.NewBufferString(`{"confirm":"УДАЛИТЬ","purge":false}`)
+		req, _ := http.NewRequest(http.MethodPost, ts.URL+"/api/v1/service/uninstall", body)
+		req.Header.Set("Authorization", "Bearer test-token")
+		req.Header.Set("Content-Type", "application/json")
+		resp, err := http.DefaultClient.Do(req)
+		if err != nil {
+			t.Fatal(err)
+		}
+		defer resp.Body.Close()
+		if resp.StatusCode != http.StatusAccepted && resp.StatusCode != http.StatusOK {
+			t.Fatalf("status = %d", resp.StatusCode)
+		}
+		var result struct {
+			Scheduled bool   `json:"scheduled"`
+			Message   string `json:"message"`
+		}
+		if err := json.NewDecoder(resp.Body).Decode(&result); err != nil {
+			t.Fatal(err)
+		}
+		if result.Message == "" {
+			t.Fatal("empty message")
+		}
+	})
 }
