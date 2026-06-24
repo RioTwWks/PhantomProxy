@@ -12,18 +12,19 @@ import (
 
 // Config описывает параметры прокси-сервера.
 type Config struct {
-	Listen      ListenConfig      `mapstructure:"listen"`
-	MTProto     MTProtoConfig     `mapstructure:"mtproto"`
-	TLS         TLSConfig         `mapstructure:"tls"`
-	Fallback    FallbackConfig    `mapstructure:"fallback"`
-	Management  ManagementConfig  `mapstructure:"management"`
+	Listen     ListenConfig     `mapstructure:"listen" yaml:"listen"`
+	MTProto    MTProtoConfig    `mapstructure:"mtproto" yaml:"mtproto"`
+	TLS        TLSConfig        `mapstructure:"tls" yaml:"tls"`
+	Fallback   FallbackConfig   `mapstructure:"fallback" yaml:"fallback"`
+	Management ManagementConfig `mapstructure:"management" yaml:"management"`
 }
 
 // ManagementConfig — HTTP API управления.
 type ManagementConfig struct {
-	Host  string `mapstructure:"host"`
-	Port  int    `mapstructure:"port"`
-	Token string `mapstructure:"token"`
+	Host         string `mapstructure:"host" yaml:"host"`
+	Port         int    `mapstructure:"port" yaml:"port"`
+	Token        string `mapstructure:"token" yaml:"token"`
+	PublicServer string `mapstructure:"public_server" yaml:"public_server"`
 }
 
 // Enabled возвращает true, если API управления включён.
@@ -42,36 +43,36 @@ func (c ManagementConfig) Addr() string {
 
 // ListenConfig — адрес прослушивания.
 type ListenConfig struct {
-	Host string `mapstructure:"host"`
-	Port int    `mapstructure:"port"`
+	Host string `mapstructure:"host" yaml:"host"`
+	Port int    `mapstructure:"port" yaml:"port"`
 }
 
 // UserConfig — пользователь MTProto-прокси.
 type UserConfig struct {
-	Name    string `mapstructure:"name"`
-	Secret  string `mapstructure:"secret"`
-	Enabled *bool  `mapstructure:"enabled"`
+	Name    string `mapstructure:"name" yaml:"name"`
+	Secret  string `mapstructure:"secret" yaml:"secret"`
+	Enabled *bool  `mapstructure:"enabled" yaml:"enabled"`
 }
 
 // MTProtoConfig — секреты и бэкенд Telegram.
 type MTProtoConfig struct {
-	Secret  string       `mapstructure:"secret"`
-	Backend string       `mapstructure:"backend"`
-	Users   []UserConfig `mapstructure:"users"`
+	Secret  string       `mapstructure:"secret" yaml:"secret,omitempty"`
+	Backend string       `mapstructure:"backend" yaml:"backend"`
+	Users   []UserConfig `mapstructure:"users" yaml:"users"`
 }
 
 // TLSConfig — параметры Fake TLS и отпечатков.
 type TLSConfig struct {
-	RecordMinChunk int      `mapstructure:"record_min_chunk"`
-	RecordMaxChunk int      `mapstructure:"record_max_chunk"`
-	NoiseMean      int      `mapstructure:"noise_mean"`
-	NoiseJitter    int      `mapstructure:"noise_jitter"`
-	AllowedJA3     []string `mapstructure:"allowed_ja3"`
+	RecordMinChunk int      `mapstructure:"record_min_chunk" yaml:"record_min_chunk"`
+	RecordMaxChunk int      `mapstructure:"record_max_chunk" yaml:"record_max_chunk"`
+	NoiseMean      int      `mapstructure:"noise_mean" yaml:"noise_mean"`
+	NoiseJitter    int      `mapstructure:"noise_jitter" yaml:"noise_jitter"`
+	AllowedJA3     []string `mapstructure:"allowed_ja3" yaml:"allowed_ja3,omitempty"`
 }
 
 // FallbackConfig — сайт-заглушка для посторонних соединений.
 type FallbackConfig struct {
-	Upstream string `mapstructure:"upstream"`
+	Upstream string `mapstructure:"upstream" yaml:"upstream"`
 }
 
 // Addr возвращает адрес прослушивания в формате host:port.

@@ -1,0 +1,39 @@
+{{define "users_table"}}
+<table>
+  <thead>
+    <tr>
+      <th>Имя</th>
+      <th>Host</th>
+      <th>Статус</th>
+      <th>Секрет</th>
+      <th>Telegram</th>
+      <th>Действия</th>
+    </tr>
+  </thead>
+  <tbody>
+    {{range .Users}}
+    <tr>
+      <td><strong>{{.Name}}</strong></td>
+      <td>{{.Host}}</td>
+      <td>
+        {{if .Enabled}}<span class="badge badge-ok">активен</span>{{else}}<span class="badge badge-off">выкл</span>{{end}}
+      </td>
+      <td class="mono">{{.Secret}}</td>
+      <td>
+        {{if .TGLink}}
+        <button type="button" class="btn btn-sm btn-secondary" data-copy="{{.TGLink}}">Копировать ссылку</button>
+        {{end}}
+      </td>
+      <td class="actions">
+        <form method="post" action="/ui/users/{{.Name}}/toggle" style="display:inline">
+          <button type="submit" class="btn btn-sm btn-secondary">{{if .Enabled}}Выключить{{else}}Включить{{end}}</button>
+        </form>
+        <form method="post" action="/ui/users/{{.Name}}/delete" style="display:inline" onsubmit="return confirm('Удалить пользователя {{.Name}}?')">
+          <button type="submit" class="btn btn-sm btn-danger">Удалить</button>
+        </form>
+      </td>
+    </tr>
+    {{end}}
+  </tbody>
+</table>
+{{end}}

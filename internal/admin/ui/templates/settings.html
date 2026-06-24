@@ -1,0 +1,74 @@
+{{define "settings.html"}}
+{{template "layout" .}}
+{{end}}
+
+{{define "content"}}
+<h1 class="page-title">Настройки</h1>
+<p class="page-subtitle">Параметры прокси и Fake TLS</p>
+
+<div class="alert alert-info">
+  Изменение порта прослушивания вступит в силу после перезапуска процесса. Остальные параметры применяются сразу.
+</div>
+
+<form method="post" action="/ui/settings">
+  <div class="panel">
+    <h2>Прокси</h2>
+    <div class="form-grid">
+      <div class="form-group">
+        <label for="listen_host">Listen host</label>
+        <input type="text" id="listen_host" name="listen_host" value="{{.Settings.ListenHost}}">
+      </div>
+      <div class="form-group">
+        <label for="listen_port">Listen port</label>
+        <input type="number" id="listen_port" name="listen_port" value="{{.Settings.ListenPort}}">
+      </div>
+      <div class="form-group">
+        <label for="public_server">Публичный IP/домен (для tg:// ссылок)</label>
+        <input type="text" id="public_server" name="public_server" value="{{.Settings.PublicServer}}" placeholder="1.2.3.4">
+      </div>
+      <div class="form-group">
+        <label for="backend">Telegram backend</label>
+        <input type="text" id="backend" name="backend" value="{{.Settings.Backend}}" placeholder="пусто = авто DC">
+      </div>
+      <div class="form-group">
+        <label for="fallback_upstream">Fallback upstream</label>
+        <input type="text" id="fallback_upstream" name="fallback_upstream" value="{{.Settings.FallbackUpstream}}">
+      </div>
+    </div>
+  </div>
+
+  <div class="panel">
+    <h2>Fake TLS</h2>
+    <div class="form-grid">
+      <div class="form-group">
+        <label for="record_min_chunk">Record min chunk</label>
+        <input type="number" id="record_min_chunk" name="record_min_chunk" value="{{.Settings.RecordMinChunk}}">
+      </div>
+      <div class="form-group">
+        <label for="record_max_chunk">Record max chunk</label>
+        <input type="number" id="record_max_chunk" name="record_max_chunk" value="{{.Settings.RecordMaxChunk}}">
+      </div>
+      <div class="form-group">
+        <label for="noise_mean">Noise mean</label>
+        <input type="number" id="noise_mean" name="noise_mean" value="{{.Settings.NoiseMean}}">
+      </div>
+      <div class="form-group">
+        <label for="noise_jitter">Noise jitter</label>
+        <input type="number" id="noise_jitter" name="noise_jitter" value="{{.Settings.NoiseJitter}}">
+      </div>
+    </div>
+    <div class="form-group">
+      <label for="allowed_ja3">Allowed JA3 (через запятую)</label>
+      <input type="text" id="allowed_ja3" name="allowed_ja3" value="{{.AllowedJA3Text}}">
+    </div>
+  </div>
+
+  <div class="actions">
+    <button type="submit" class="btn btn-primary">Сохранить</button>
+  </div>
+</form>
+
+<form method="post" action="/ui/reload" style="margin-top:1rem">
+  <button type="submit" class="btn btn-secondary">Перезагрузить config.yaml</button>
+</form>
+{{end}}

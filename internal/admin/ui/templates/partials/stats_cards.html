@@ -1,0 +1,28 @@
+{{define "stats_cards"}}
+<div class="cards">
+  <div class="card">
+    <div class="card-label">Uptime</div>
+    <div class="card-value">{{.UptimeText}}</div>
+  </div>
+  <div class="card">
+    <div class="card-label">Активные соединения</div>
+    <div class="card-value">{{.Stats.ActiveConnections}}</div>
+  </div>
+  <div class="card">
+    <div class="card-label">Всего подключений</div>
+    <div class="card-value">{{.Stats.TotalConnections}}</div>
+  </div>
+  <div class="card">
+    <div class="card-label">Upload</div>
+    <div class="card-value">{{formatBytes .Stats.UploadBytes}}</div>
+  </div>
+  <div class="card">
+    <div class="card-label">Download</div>
+    <div class="card-value">{{formatBytes .Stats.DownloadBytes}}</div>
+  </div>
+  <div class="card">
+    <div class="card-label">Пользователей</div>
+    <div class="card-value">{{.UsersCount}}</div>
+  </div>
+</div>
+{{end}}

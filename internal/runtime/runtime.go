@@ -58,6 +58,28 @@ func (r *Runtime) Reload() error {
 	return nil
 }
 
+// UpdateSettings обновляет настройки и сохраняет конфигурацию на диск.
+func (r *Runtime) UpdateSettings(settings config.SettingsView) error {
+	r.mu.Lock()
+	defer r.mu.Unlock()
+
+	cfg := config.ApplySettings(r.Config, settings)
+	cfg.MTProto.Users = config.UsersToConfig(r.Users.Users())
+	cfg.MTProto.Secret = ""
+
+	r.Users.SetAllowedJA3(settings.AllowedJA3)
+
+	if r.ConfigPath == "" {
+		r.Config = cfg
+		return nil
+	}
+	if err := config.Save(r.ConfigPath, cfg); err != nil {
+		return err
+	}
+	r.Config = cfg
+	return nil
+}
+
 // Uptime возвращает время работы сервера.
 func (r *Runtime) Uptime() time.Duration {
 	return time.Since(r.StartedAt)

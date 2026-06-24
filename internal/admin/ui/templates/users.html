@@ -1,0 +1,34 @@
+{{define "users.html"}}
+{{template "layout" .}}
+{{end}}
+
+{{define "content"}}
+<h1 class="page-title">Пользователи</h1>
+<p class="page-subtitle">Управление MTProto-секретами и ссылками Telegram</p>
+
+<div class="panel">
+  <h2>Добавить пользователя</h2>
+  <form method="post" action="/ui/users">
+    <div class="form-grid">
+      <div class="form-group">
+        <label for="name">Имя</label>
+        <input type="text" id="name" name="name" required placeholder="alice">
+      </div>
+      <div class="form-group">
+        <label for="host">Домен маскировки</label>
+        <input type="text" id="host" name="host" placeholder="storage.googleapis.com">
+      </div>
+      <div class="form-group">
+        <label for="secret">Секрет (опционально)</label>
+        <input type="text" id="secret" name="secret" placeholder="ee... (авто-генерация)">
+      </div>
+    </div>
+    <button type="submit" class="btn btn-primary">Создать</button>
+  </form>
+</div>
+
+<div class="panel">
+  <h2>Список пользователей</h2>
+  {{template "users_table" .}}
+</div>
+{{end}}

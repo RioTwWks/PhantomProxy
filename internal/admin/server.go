@@ -10,6 +10,7 @@ import (
 	"strings"
 	"time"
 
+	"github.com/RioTwWks/PhantomProxy/internal/admin/ui"
 	"github.com/RioTwWks/PhantomProxy/internal/config"
 	"github.com/RioTwWks/PhantomProxy/internal/mtproto"
 	"github.com/RioTwWks/PhantomProxy/internal/runtime"
@@ -34,6 +35,9 @@ func New(rt *runtime.Runtime, cfg config.ManagementConfig) *Server {
 	mux.HandleFunc("/api/v1/stats", s.withAuth(s.handleStats))
 	mux.HandleFunc("/api/v1/stats/", s.withAuth(s.handleStatsByName))
 	mux.HandleFunc("/api/v1/reload", s.withAuth(s.handleReload))
+	mux.HandleFunc("/api/v1/config", s.withAuth(s.handleConfig))
+
+	ui.NewHandler(s.rt, cfg.Token).Register(mux)
 
 	s.server = &http.Server{
 		Addr:              cfg.Addr(),
@@ -273,22 +277,46 @@ func (s *Server) handleReload(w http.ResponseWriter, r *http.Request) {
 	writeJSON(w, http.StatusOK, map[string]string{"status": "reloaded"})
 }
 
+func (s *Server) handleConfig(w http.ResponseWriter, r *http.Request) {
+	switch r.Method {
+	case http.MethodGet:
+		writeJSON(w, http.StatusOK, config.SettingsFromConfig(s.rt.Snapshot()))
+	case http.MethodPut:
+		var settings config.SettingsView
+		if err := json.NewDecoder(r.Body).Decode(&settings); err != nil {
+			writeError(w, http.StatusBadRequest, "некорректный JSON")
+			return
+		}
+		if err := s.rt.UpdateSettings(settings); err != nil {
+			writeError(w, http.StatusInternalServerError, err.Error())
+			return
+		}
+		writeJSON(w, http.StatusOK, config.SettingsFromConfig(s.rt.Snapshot()))
+	default:
+		writeError(w, http.StatusMethodNotAllowed, "метод не поддерживается")
+	}
+}
+
 func (s *Server) proxyEndpoint(r *http.Request) (string, int) {
-	server := r.URL.Query().Get("server")
+	if server := r.URL.Query().Get("server"); server != "" {
+		port := s.rt.Snapshot().Listen.Port
+		if p := r.URL.Query().Get("port"); p != "" {
+			if v, err := strconv.Atoi(p); err == nil {
+				port = v
+			}
+		}
+		return server, port
+	}
+
+	cfg := s.rt.Snapshot()
+	server := cfg.Management.PublicServer
 	if server == "" {
-		host := s.rt.Snapshot().Listen.Host
-		if host == "" || host == "0.0.0.0" {
-			host = "127.0.0.1"
-		}
-		server = host
-	}
-	port := s.rt.Snapshot().Listen.Port
-	if p := r.URL.Query().Get("port"); p != "" {
-		if v, err := strconv.Atoi(p); err == nil {
-			port = v
+		server = cfg.Listen.Host
+		if server == "" || server == "0.0.0.0" {
+			server = "127.0.0.1"
 		}
 	}
-	return server, port
+	return server, cfg.Listen.Port
 }
 
 func writeJSON(w http.ResponseWriter, status int, v any) {

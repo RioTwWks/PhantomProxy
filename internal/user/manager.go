@@ -205,6 +205,19 @@ func (m *Manager) Reload(users []User) error {
 	return m.replaceUsers(users)
 }
 
+// SetAllowedJA3 обновляет белый список JA3.
+func (m *Manager) SetAllowedJA3(allowed []string) {
+	m.mu.Lock()
+	defer m.mu.Unlock()
+
+	m.fingerprints = make(map[string]struct{}, len(allowed))
+	for _, fp := range allowed {
+		if fp != "" {
+			m.fingerprints[fp] = struct{}{}
+		}
+	}
+}
+
 func (m *Manager) refreshMaskHost() error {
 	active := 0
 	for _, u := range m.users {
