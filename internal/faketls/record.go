@@ -12,6 +12,7 @@ import (
 type RecordConn struct {
 	net.Conn
 	readBuf bytes.Buffer
+	Policy  RecordPolicy
 }
 
 // Read читает полезную нагрузку из TLS Application Data записей.
@@ -43,14 +44,13 @@ func (c *RecordConn) Read(b []byte) (int, error) {
 	return n, nil
 }
 
-// Write оборачивает данные в TLS Application Data записи.
+// Write оборачивает данные в TLS Application Data записи с динамическим размером.
 func (c *RecordConn) Write(b []byte) (int, error) {
+	policy := c.Policy.Normalize()
 	total := 0
 	for len(b) > 0 {
-		chunk := b
-		if len(chunk) > maxRecordPayload {
-			chunk = chunk[:maxRecordPayload]
-		}
+		chunkSize := policy.chunkSize(len(b))
+		chunk := b[:chunkSize]
 
 		var rec [5]byte
 		rec[0] = recordApplicationData
@@ -65,7 +65,7 @@ func (c *RecordConn) Write(b []byte) (int, error) {
 			return total, err
 		}
 		total += len(chunk)
-		b = b[len(chunk):]
+		b = b[chunkSize:]
 	}
 	return total, nil
 }

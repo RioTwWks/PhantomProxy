@@ -1,4 +1,4 @@
-.PHONY: build test run clean
+.PHONY: build test integration run clean
 
 BINARY_NAME=telegram-proxy
 
@@ -7,6 +7,9 @@ build:
 
 test:
 	go test -v -race ./...
+
+integration:
+	go test -v -race -tags=integration ./internal/proxy/...
 
 run: build
 	./$(BINARY_NAME) -config configs/config.yaml

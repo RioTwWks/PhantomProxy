@@ -17,22 +17,29 @@ func main() {
 	configPath := flag.String("config", "configs/config.yaml", "путь к файлу конфигурации")
 	flag.Parse()
 
-	cfg, secret, err := config.Load(*configPath)
+	cfg, users, err := config.Load(*configPath)
 	if err != nil {
 		slog.Error("ошибка загрузки конфигурации", "err", err)
 		os.Exit(1)
 	}
 
+	names := make([]string, 0, len(users.Users()))
+	for _, u := range users.Users() {
+		names = append(names, u.Name)
+	}
+
 	slog.Info("PhantomProxy запущен",
 		"listen", cfg.Addr(),
-		"mask_host", secret.Host,
+		"users", names,
+		"mask_host", users.MaskHost(),
 		"fallback", cfg.Fallback.Upstream,
+		"record_chunk", cfg.RecordPolicy(),
 	)
 
 	ctx, stop := signal.NotifyContext(context.Background(), syscall.SIGINT, syscall.SIGTERM)
 	defer stop()
 
-	srv := proxy.New(cfg, secret)
+	srv := proxy.New(cfg, users)
 	errCh := make(chan error, 1)
 	go func() {
 		errCh <- srv.Serve(ctx)
