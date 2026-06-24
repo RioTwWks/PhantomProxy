@@ -2,99 +2,108 @@
 
 ## Проект
 
-**PhantomProxy** — Go TCP-прокси с маскировкой MTProto под Fake TLS.
+**PhantomProxy** — Go TCP-прокси с маскировкой MTProto под Fake TLS + secure (`dd`).
 
 - Репозиторий: `github.com/RioTwWks/PhantomProxy`
 - Модуль: `github.com/RioTwWks/PhantomProxy`
 - Бинарник: `telegram-proxy` (`make build`)
+- Версия: `telegram-proxy version` → `0.2.0`
 - Точка входа: `cmd/proxy/main.go`
 
 ## Быстрый старт
 
 ```bash
-make build && make run
-# Прокси: :8443, WebUI: http://127.0.0.1:8081/ui/
-make test
-make integration
+make build
+./telegram-proxy run -config configs/config.yaml
+# Прокси: :8443, WebUI: http://127.0.0.1:8081/ui/, Metrics: http://127.0.0.1:9090/metrics
+
+GOTOOLCHAIN=local make test
+GOTOOLCHAIN=local make integration
 ```
 
 ## Что читать перед изменениями
 
 | Файл | Когда |
 |------|-------|
-| `docs/ARCHITECTURE.md` | Изменения в proxy/faketls/obfuscated2 |
-| `docs/API.md` | Изменения в admin API или WebUI |
-| `docs/CONFIG.md` | Новые поля конфигурации и env-переменные |
-| `CONTRIBUTING.md` | Изменения в workflow разработки |
-| `configs/config.yaml` | Пример конфигурации |
-| `.cursorrules` | Общие соглашения проекта |
+| `docs/ROADMAP.md` | План фич, что в v2 отложено |
+| `docs/ARCHITECTURE.md` | Потоки данных, пакеты |
+| `docs/API.md` | REST API и WebUI |
+| `docs/CONFIG.md` | YAML, env `PHANTOM_*` |
+| `docs/DEPLOY.md` | systemd, nginx, Prometheus, SOCKS5 |
+| `CONTRIBUTING.md` | Workflow, PR checklist |
+| `configs/config.yaml` | Актуальный пример конфига |
+| `.cursorrules` | Соглашения проекта |
 
 ## Ключевые компоненты
 
 ```
-cmd/proxy/main.go          → запуск proxy + admin
-internal/proxy/server.go   → TCP accept, маршрутизация
-internal/faketls/          → Fake TLS, JA3/JA4
-internal/user/manager.go   → multi-user, thread-safe
-internal/admin/server.go   → REST API
-internal/admin/ui/         → WebUI (embed templates)
-internal/runtime/          → Reload, UpdateSettings
+cmd/proxy/main.go           → CLI run/generate/version, proxy+admin+metrics
+internal/proxy/server.go    → маршрутизация ee/dd, fronting, relay
+internal/faketls/           → TLS, replay, splice, DRS, Split-TLS
+internal/user/manager.go    → multi-user, JA3/JA4 whitelist, MatchSecure
+internal/runtime/runtime.go → Reload, PersistUsers, Replay, Limiter
+internal/metrics/           → Prometheus endpoint
+internal/upstream/          → SOCKS5 + IPv prefer для DC
+internal/limit/             → max connections per IP
+internal/admin/             → REST + WebUI
 ```
 
 ## Типичные задачи
 
 ### Добавить поле в конфиг
 
-1. Struct в `internal/config/config.go` (+ yaml/mapstructure теги)
-2. Default в `loadFile()` если нужен
-3. `SettingsView` в `settings.go` если редактируется из UI
-4. Обновить `configs/config.yaml`, `docs/API.md`, README
+1. Struct в `internal/config/config.go`
+2. Default в `loadFile()`
+3. `SettingsView` в `settings.go` (если в UI)
+4. Обновить `configs/config.yaml`, `docs/CONFIG.md`
 
-### Добавить API-эндпоинт
+### Изменить логику прокси
 
-1. Handler в `internal/admin/server.go`
-2. Регистрация в `New()` с `withAuth` если нужен токен
-3. Тест в `server_test.go`
-4. Документация в `docs/API.md`
+1. `internal/proxy/server.go` — маршрутизация
+2. Тест в `integration_test.go` (`-tags=integration`)
+3. Обновить `docs/ARCHITECTURE.md` при смене потока
 
-### Добавить страницу WebUI
+### CRUD пользователей
 
-1. Шаблон в `internal/admin/ui/templates/`
-2. Handler в `internal/admin/ui/handler.go`
-3. Регистрация маршрута в `Register()`
-4. Тест в `handler_test.go`
+- API: `internal/admin/server.go` → `rt.PersistUsers()` после изменений
+- UI: `internal/admin/ui/handler.go` → то же
+
+### Добавить метрику Prometheus
+
+1. Counter/Gauge в `internal/metrics/prometheus.go`
+2. Инкремент из `proxy/server.go` или `runtime`
+3. Документировать в `docs/DEPLOY.md`
 
 ## Ограничения
 
-- **Не добавляй** Docker в CI без запроса (docker-compose уже есть для dev)
-- **Не используй** Redis, Celery, внешние БД
-- **Не меняй** `go.mod` без необходимости
-- Management API слушает `127.0.0.1` — не открывай наружу без reverse proxy
+- Не добавляй Redis, БД, Celery
+- Не меняй `go.mod` без необходимости; держи совместимость с Go 1.22
+- Management API — только `127.0.0.1` в production
+- Adtag / middle proxy — out of scope (см. ROADMAP v2)
 - Комментарии в коде — на русском
 
 ## Ветки и PR
 
-- Формат ветки: `cursor/<описание>-393e`
-- Base branch: `main`
-- Коммить и пушить перед созданием PR
-- PR — draft по умолчанию
+- Формат: `cursor/<описание>-393e`
+- Base: `main`
+- CI должен проходить: `GOTOOLCHAIN=local make test && make integration`
 
 ## MCP (локально в Cursor)
 
-`.cursor/mcp.json` содержит:
+`.cursor/mcp.json`:
 - `filesystem` — файлы проекта
-- `fetch` — тестирование API на `:8081`
+- `fetch` — HTTP к `:8081` (API/WebUI) и `:9090` (metrics)
 
-## Тестирование изменений
+## Проверка после изменений
 
 ```bash
-# Unit
-go test -race ./...
+GOTOOLCHAIN=local make test
+GOTOOLCHAIN=local make integration
 
-# Интеграция (mock DC)
-go test -race -tags=integration ./internal/proxy/...
-
-# Ручная проверка API
-curl -H "Authorization: Bearer change-me-in-production" \
+curl -s http://127.0.0.1:8081/api/v1/health
+curl -s -H "Authorization: Bearer change-me-in-production" \
   http://127.0.0.1:8081/api/v1/status
+curl -s http://127.0.0.1:9090/metrics | head
+
+./telegram-proxy generate www.google.com
 ```

@@ -3,12 +3,12 @@
     "filesystem": {
       "command": "npx",
       "args": ["-y", "@modelcontextprotocol/server-filesystem", "."],
-      "description": "Доступ к файлам проекта PhantomProxy (Go, YAML, HTML-шаблоны)"
+      "description": "Файлы PhantomProxy: Go, YAML, HTML-шаблоны, docs/"
     },
     "fetch": {
       "command": "npx",
       "args": ["-y", "@modelcontextprotocol/server-fetch"],
-      "description": "HTTP-запросы к management API (localhost:8081) и fallback upstream"
+      "description": "HTTP: management API :8081, Prometheus :9090/metrics, fallback upstream"
     }
   }
 }
