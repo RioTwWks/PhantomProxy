@@ -49,6 +49,9 @@ management:
   port: 8081
   token: "change-me-in-production"
   public_server: ""
+  service_name: phantom-proxy
+  allow_service_uninstall: false
+  # uninstall_script: /opt/phantomproxy/uninstall.sh
 
 metrics:
   host: "127.0.0.1"

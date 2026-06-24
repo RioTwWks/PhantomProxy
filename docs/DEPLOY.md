@@ -1,5 +1,63 @@
 # Деплой PhantomProxy
 
+## Быстрая установка (одна команда)
+
+```bash
+sudo make install-service
+# или
+sudo bash deploy/install.sh
+```
+
+Скрипт соберёт бинарник, создаст пользователя `phantom`, установит файлы в `/opt/phantomproxy` и `/etc/phantomproxy`, включит systemd unit.
+
+## Удаление (одна команда)
+
+```bash
+sudo make uninstall-service
+# или
+sudo bash deploy/uninstall.sh
+```
+
+Полное удаление с конфигом и бинарником:
+
+```bash
+sudo bash deploy/uninstall.sh --purge
+```
+
+Docker Compose:
+
+```bash
+sudo bash deploy/uninstall.sh --docker
+```
+
+### Удаление через WebUI
+
+В `config.yaml` включи:
+
+```yaml
+management:
+  allow_service_uninstall: true
+  uninstall_script: /opt/phantomproxy/uninstall.sh
+```
+
+На странице **Настройки** появится блок «Опасная зона» — введи `УДАЛИТЬ` и нажми кнопку.
+
+### Удаление через API
+
+```bash
+curl -s -X POST -H "Authorization: Bearer $TOKEN" \
+  -H "Content-Type: application/json" \
+  -d '{"confirm":"УДАЛИТЬ","purge":false}' \
+  http://127.0.0.1:8081/api/v1/service/uninstall
+```
+
+### CLI
+
+```bash
+./telegram-proxy uninstall
+./telegram-proxy uninstall --purge
+```
+
 ## Сборка
 
 ```bash

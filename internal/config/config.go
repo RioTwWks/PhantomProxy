@@ -71,10 +71,14 @@ func (c MetricsConfig) Addr() string {
 
 // ManagementConfig — HTTP API управления.
 type ManagementConfig struct {
-	Host         string `mapstructure:"host" yaml:"host"`
-	Port         int    `mapstructure:"port" yaml:"port"`
-	Token        string `mapstructure:"token" yaml:"token"`
-	PublicServer string `mapstructure:"public_server" yaml:"public_server"`
+	Host                  string `mapstructure:"host" yaml:"host"`
+	Port                  int    `mapstructure:"port" yaml:"port"`
+	Token                 string `mapstructure:"token" yaml:"token"`
+	PublicServer          string `mapstructure:"public_server" yaml:"public_server"`
+	ServiceName           string `mapstructure:"service_name" yaml:"service_name"`
+	ServiceUnitPath       string `mapstructure:"service_unit_path" yaml:"service_unit_path,omitempty"`
+	AllowServiceUninstall bool   `mapstructure:"allow_service_uninstall" yaml:"allow_service_uninstall"`
+	UninstallScript       string `mapstructure:"uninstall_script" yaml:"uninstall_script,omitempty"`
 }
 
 // Enabled возвращает true, если API управления включён.
@@ -241,6 +245,8 @@ func loadFile(path string) (Config, error) {
 	v.SetDefault("tls.enable_split_tls", true)
 	v.SetDefault("management.host", "127.0.0.1")
 	v.SetDefault("management.port", 8081)
+	v.SetDefault("management.service_name", "phantom-proxy")
+	v.SetDefault("management.allow_service_uninstall", false)
 	v.SetDefault("fronting.enabled", true)
 	v.SetDefault("fronting.port", 443)
 	v.SetDefault("fronting.action", "splice")

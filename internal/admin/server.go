@@ -14,19 +14,20 @@ import (
 	"github.com/RioTwWks/PhantomProxy/internal/config"
 	"github.com/RioTwWks/PhantomProxy/internal/mtproto"
 	"github.com/RioTwWks/PhantomProxy/internal/runtime"
+	"github.com/RioTwWks/PhantomProxy/internal/service"
 	"github.com/RioTwWks/PhantomProxy/internal/user"
 )
 
 // Server — HTTP API управления PhantomProxy.
 type Server struct {
 	rt     *runtime.Runtime
-	token  string
+	mgmt   config.ManagementConfig
 	server *http.Server
 }
 
 // New создаёт сервер управления.
 func New(rt *runtime.Runtime, cfg config.ManagementConfig) *Server {
-	s := &Server{rt: rt, token: cfg.Token}
+	s := &Server{rt: rt, mgmt: cfg}
 	mux := http.NewServeMux()
 	mux.HandleFunc("/api/v1/health", s.handleHealth)
 	mux.HandleFunc("/api/v1/status", s.withAuth(s.handleStatus))
@@ -36,8 +37,9 @@ func New(rt *runtime.Runtime, cfg config.ManagementConfig) *Server {
 	mux.HandleFunc("/api/v1/stats/", s.withAuth(s.handleStatsByName))
 	mux.HandleFunc("/api/v1/reload", s.withAuth(s.handleReload))
 	mux.HandleFunc("/api/v1/config", s.withAuth(s.handleConfig))
+	mux.HandleFunc("/api/v1/service/uninstall", s.withAuth(s.handleServiceUninstall))
 
-	ui.NewHandler(s.rt, cfg.Token).Register(mux)
+	ui.NewHandler(s.rt, cfg).Register(mux)
 
 	s.server = &http.Server{
 		Addr:              cfg.Addr(),
@@ -65,7 +67,7 @@ func (s *Server) Serve(ctx context.Context) error {
 
 func (s *Server) withAuth(next http.HandlerFunc) http.HandlerFunc {
 	return func(w http.ResponseWriter, r *http.Request) {
-		if s.token != "" && !checkToken(r, s.token) {
+		if s.mgmt.Token != "" && !checkToken(r, s.mgmt.Token) {
 			writeError(w, http.StatusUnauthorized, "неверный токен")
 			return
 		}
@@ -287,6 +289,45 @@ func (s *Server) handleReload(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 	writeJSON(w, http.StatusOK, map[string]string{"status": "reloaded"})
+}
+
+type uninstallRequest struct {
+	Confirm string `json:"confirm"`
+	Purge   bool   `json:"purge"`
+}
+
+func (s *Server) handleServiceUninstall(w http.ResponseWriter, r *http.Request) {
+	if r.Method != http.MethodPost {
+		writeError(w, http.StatusMethodNotAllowed, "метод не поддерживается")
+		return
+	}
+	if !s.mgmt.AllowServiceUninstall {
+		writeError(w, http.StatusForbidden, "удаление сервиса отключено в конфигурации")
+		return
+	}
+
+	var req uninstallRequest
+	if err := json.NewDecoder(r.Body).Decode(&req); err != nil {
+		writeError(w, http.StatusBadRequest, "некорректный JSON")
+		return
+	}
+	if err := service.ValidateConfirm(req.Confirm); err != nil {
+		writeError(w, http.StatusBadRequest, err.Error())
+		return
+	}
+
+	svcCfg := service.FromManagement(
+		s.mgmt.ServiceName,
+		s.mgmt.ServiceUnitPath,
+		s.mgmt.UninstallScript,
+		s.mgmt.AllowServiceUninstall,
+	)
+	result := service.ScheduleUninstall(svcCfg, req.Purge)
+	status := http.StatusAccepted
+	if !result.Scheduled {
+		status = http.StatusOK
+	}
+	writeJSON(w, status, result)
 }
 
 func (s *Server) handleConfig(w http.ResponseWriter, r *http.Request) {

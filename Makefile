@@ -1,4 +1,4 @@
-.PHONY: build test integration run clean fmt lint
+.PHONY: build test integration run clean fmt lint install-service uninstall-service
 
 BINARY_NAME=telegram-proxy
 GO ?= go
@@ -27,3 +27,9 @@ fmt:
 	$(GO) fmt ./...
 
 ci: test integration build
+
+install-service:
+	sudo bash deploy/install.sh
+
+uninstall-service:
+	sudo bash deploy/uninstall.sh
