@@ -3,6 +3,7 @@ package config
 import (
 	"fmt"
 	"strings"
+	"time"
 
 	"github.com/RioTwWks/PhantomProxy/internal/faketls"
 	"github.com/RioTwWks/PhantomProxy/internal/mtproto"
@@ -17,6 +18,55 @@ type Config struct {
 	TLS        TLSConfig        `mapstructure:"tls" yaml:"tls"`
 	Fallback   FallbackConfig   `mapstructure:"fallback" yaml:"fallback"`
 	Management ManagementConfig `mapstructure:"management" yaml:"management"`
+	Fronting   FrontingConfig   `mapstructure:"fronting" yaml:"fronting"`
+	Security   SecurityConfig   `mapstructure:"security" yaml:"security"`
+	Protocols  ProtocolsConfig  `mapstructure:"protocols" yaml:"protocols"`
+	Upstream   UpstreamConfig   `mapstructure:"upstream" yaml:"upstream"`
+	Metrics    MetricsConfig    `mapstructure:"metrics" yaml:"metrics"`
+}
+
+// FrontingConfig — domain fronting при отклонённом Fake TLS.
+type FrontingConfig struct {
+	Enabled bool   `mapstructure:"enabled" yaml:"enabled"`
+	Port    int    `mapstructure:"port" yaml:"port"`
+	Action  string `mapstructure:"action" yaml:"action"` // splice, redirect, fallback
+}
+
+// SecurityConfig — anti-replay и лимиты.
+type SecurityConfig struct {
+	AntireplayCacheMB  int `mapstructure:"antireplay_cache_mb" yaml:"antireplay_cache_mb"`
+	MaxConnectionsPerIP int `mapstructure:"max_connections_per_ip" yaml:"max_connections_per_ip"`
+	HandshakeTimeoutSec int `mapstructure:"handshake_timeout_sec" yaml:"handshake_timeout_sec"`
+}
+
+// ProtocolsConfig — поддерживаемые режимы MTProto.
+type ProtocolsConfig struct {
+	FakeTLS bool `mapstructure:"fake_tls" yaml:"fake_tls"`
+	Secure  bool `mapstructure:"secure" yaml:"secure"`
+}
+
+// UpstreamConfig — исходящие соединения к DC.
+type UpstreamConfig struct {
+	SOCKS5   string `mapstructure:"socks5" yaml:"socks5,omitempty"`
+	PreferIP string `mapstructure:"prefer_ip" yaml:"prefer_ip"`
+}
+
+// MetricsConfig — Prometheus.
+type MetricsConfig struct {
+	Host string `mapstructure:"host" yaml:"host"`
+	Port int    `mapstructure:"port" yaml:"port"`
+}
+
+// Enabled возвращает true, если metrics включены.
+func (c MetricsConfig) Enabled() bool { return c.Port > 0 }
+
+// Addr возвращает адрес metrics.
+func (c MetricsConfig) Addr() string {
+	host := c.Host
+	if host == "" {
+		host = "127.0.0.1"
+	}
+	return fmt.Sprintf("%s:%d", host, c.Port)
 }
 
 // ManagementConfig — HTTP API управления.
@@ -43,8 +93,9 @@ func (c ManagementConfig) Addr() string {
 
 // ListenConfig — адрес прослушивания.
 type ListenConfig struct {
-	Host string `mapstructure:"host" yaml:"host"`
-	Port int    `mapstructure:"port" yaml:"port"`
+	Host          string `mapstructure:"host" yaml:"host"`
+	Port          int    `mapstructure:"port" yaml:"port"`
+	ProxyProtocol bool   `mapstructure:"proxy_protocol" yaml:"proxy_protocol"`
 }
 
 // UserConfig — пользователь MTProto-прокси.
@@ -68,6 +119,9 @@ type TLSConfig struct {
 	NoiseMean      int      `mapstructure:"noise_mean" yaml:"noise_mean"`
 	NoiseJitter    int      `mapstructure:"noise_jitter" yaml:"noise_jitter"`
 	AllowedJA3     []string `mapstructure:"allowed_ja3" yaml:"allowed_ja3,omitempty"`
+	AllowedJA4     []string `mapstructure:"allowed_ja4" yaml:"allowed_ja4,omitempty"`
+	EnableDRS      bool     `mapstructure:"enable_drs" yaml:"enable_drs"`
+	EnableSplitTLS bool     `mapstructure:"enable_split_tls" yaml:"enable_split_tls"`
 }
 
 // FallbackConfig — сайт-заглушка для посторонних соединений.
@@ -84,11 +138,42 @@ func (c Config) Addr() string {
 	return fmt.Sprintf("%s:%d", host, c.Listen.Port)
 }
 
+// HandshakeTimeout возвращает таймаут рукопожатия.
+func (c Config) HandshakeTimeout() time.Duration {
+	sec := c.Security.HandshakeTimeoutSec
+	if sec <= 0 {
+		sec = 10
+	}
+	return time.Duration(sec) * time.Second
+}
+
+// FrontingPort возвращает порт domain fronting.
+func (c Config) FrontingPort() int {
+	if c.Fronting.Port <= 0 {
+		return 443
+	}
+	return c.Fronting.Port
+}
+
+// FrontingAction возвращает действие при отклонённом TLS.
+func (c Config) FrontingAction() string {
+	switch c.Fronting.Action {
+	case "redirect", "fallback", "splice":
+		return c.Fronting.Action
+	}
+	if c.Fronting.Enabled {
+		return "splice"
+	}
+	return "redirect"
+}
+
 // RecordPolicy возвращает политику размера TLS-записей.
 func (c Config) RecordPolicy() faketls.RecordPolicy {
 	return faketls.RecordPolicy{
-		MinChunk: c.TLS.RecordMinChunk,
-		MaxChunk: c.TLS.RecordMaxChunk,
+		MinChunk:       c.TLS.RecordMinChunk,
+		MaxChunk:       c.TLS.RecordMaxChunk,
+		EnableDRS:      c.TLS.EnableDRS,
+		EnableSplitTLS: c.TLS.EnableSplitTLS,
 	}.Normalize()
 }
 
@@ -98,6 +183,15 @@ func (c Config) NoiseParams() faketls.NoiseParams {
 		Mean:   c.TLS.NoiseMean,
 		Jitter: c.TLS.NoiseJitter,
 	}
+}
+
+// AntireplayMaxEntries оценивает размер кеша anti-replay.
+func (c Config) AntireplayMaxEntries() int {
+	mb := c.Security.AntireplayCacheMB
+	if mb <= 0 {
+		mb = 1
+	}
+	return mb * 10000
 }
 
 // Load читает конфигурацию из файла и переменных окружения.
@@ -112,7 +206,7 @@ func Load(path string) (Config, *user.Manager, error) {
 		return Config{}, nil, err
 	}
 
-	mgr, err := user.NewManager(users, cfg.TLS.AllowedJA3)
+	mgr, err := user.NewManager(users, cfg.TLS.AllowedJA3, cfg.TLS.AllowedJA4)
 	if err != nil {
 		return Config{}, nil, err
 	}
@@ -143,8 +237,20 @@ func loadFile(path string) (Config, error) {
 	v.SetDefault("tls.record_max_chunk", 4096)
 	v.SetDefault("tls.noise_mean", 3000)
 	v.SetDefault("tls.noise_jitter", 800)
+	v.SetDefault("tls.enable_drs", true)
+	v.SetDefault("tls.enable_split_tls", true)
 	v.SetDefault("management.host", "127.0.0.1")
 	v.SetDefault("management.port", 8081)
+	v.SetDefault("fronting.enabled", true)
+	v.SetDefault("fronting.port", 443)
+	v.SetDefault("fronting.action", "splice")
+	v.SetDefault("security.antireplay_cache_mb", 1)
+	v.SetDefault("security.handshake_timeout_sec", 10)
+	v.SetDefault("protocols.fake_tls", true)
+	v.SetDefault("protocols.secure", true)
+	v.SetDefault("upstream.prefer_ip", "prefer-ipv4")
+	v.SetDefault("metrics.host", "127.0.0.1")
+	v.SetDefault("metrics.port", 9090)
 
 	if err := v.ReadInConfig(); err != nil {
 		return Config{}, fmt.Errorf("чтение конфигурации: %w", err)
@@ -181,7 +287,11 @@ func buildUsers(mt MTProtoConfig) ([]user.User, error) {
 		}
 		name := item.Name
 		if name == "" {
-			name = secret.Host
+			if secret.Host != "" {
+				name = secret.Host
+			} else {
+				name = "user"
+			}
 		}
 		users = append(users, user.User{
 			Name:    name,

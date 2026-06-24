@@ -7,6 +7,7 @@ import (
 
 	"github.com/RioTwWks/PhantomProxy/internal/faketls"
 	"github.com/RioTwWks/PhantomProxy/internal/mtproto"
+	"github.com/RioTwWks/PhantomProxy/internal/obfuscated2"
 )
 
 // User — зарегистрированный MTProto-пользователь прокси.
@@ -18,31 +19,40 @@ type User struct {
 
 // UserView — пользователь для API (без сырого ключа).
 type UserView struct {
-	Name     string `json:"name"`
-	Secret   string `json:"secret"`
-	Host     string `json:"host"`
-	Enabled  bool   `json:"enabled"`
-	TGLink   string `json:"tg_link,omitempty"`
+	Name    string `json:"name"`
+	Secret  string `json:"secret"`
+	Host    string `json:"host"`
+	Enabled bool   `json:"enabled"`
+	TGLink  string `json:"tg_link,omitempty"`
 }
 
 // Manager хранит список пользователей и сопоставляет ClientHello с секретом.
 type Manager struct {
-	mu           sync.RWMutex
-	users        []User
-	maskHost     string
-	fingerprints map[string]struct{}
+	mu            sync.RWMutex
+	users         []User
+	maskHost      string
+	ja3Allow      map[string]struct{}
+	ja4Allow      map[string]struct{}
 }
 
 // NewManager создаёт менеджер пользователей.
-func NewManager(users []User, allowedJA3 []string) (*Manager, error) {
+func NewManager(users []User, allowedJA3, allowedJA4 []string) (*Manager, error) {
 	if len(users) == 0 {
 		return nil, fmt.Errorf("нужен хотя бы один пользователь")
 	}
 
-	m := &Manager{fingerprints: make(map[string]struct{}, len(allowedJA3))}
+	m := &Manager{
+		ja3Allow: make(map[string]struct{}, len(allowedJA3)),
+		ja4Allow: make(map[string]struct{}, len(allowedJA4)),
+	}
 	for _, fp := range allowedJA3 {
 		if fp != "" {
-			m.fingerprints[fp] = struct{}{}
+			m.ja3Allow[fp] = struct{}{}
+		}
+	}
+	for _, fp := range allowedJA4 {
+		if fp != "" {
+			m.ja4Allow[fp] = struct{}{}
 		}
 	}
 	if err := m.replaceUsers(users); err != nil {
@@ -64,15 +74,23 @@ func (m *Manager) replaceUsers(users []User) error {
 
 	m.users = append([]User(nil), users...)
 	for _, u := range m.users {
-		if u.Enabled {
+		if u.Enabled && u.Secret.Host != "" {
 			m.maskHost = u.Secret.Host
 			break
+		}
+	}
+	if m.maskHost == "" {
+		for _, u := range m.users {
+			if u.Enabled {
+				m.maskHost = "www.google.com"
+				break
+			}
 		}
 	}
 	return nil
 }
 
-// MaskHost возвращает домен маскировки для fallback-редиректа.
+// MaskHost возвращает домен маскировки для fallback/fronting.
 func (m *Manager) MaskHost() string {
 	m.mu.RLock()
 	defer m.mu.RUnlock()
@@ -111,21 +129,34 @@ func (m *Manager) GetView(name, server string, port int) (UserView, bool) {
 	return UserView{}, false
 }
 
+func (m *Manager) checkFingerprints(ch *faketls.ClientHello) error {
+	if len(m.ja3Allow) > 0 {
+		ja3 := faketls.JA3(ch.Raw)
+		if _, ok := m.ja3Allow[ja3]; !ok {
+			return fmt.Errorf("JA3 %s не в белом списке", ja3)
+		}
+	}
+	if len(m.ja4Allow) > 0 {
+		ja4 := faketls.JA4(ch.Raw)
+		if _, ok := m.ja4Allow[ja4]; !ok {
+			return fmt.Errorf("JA4 %s не в белом списке", ja4)
+		}
+	}
+	return nil
+}
+
 // MatchClientHello находит пользователя по валидному ClientHello.
 func (m *Manager) MatchClientHello(ch *faketls.ClientHello) (*User, error) {
 	m.mu.RLock()
 	defer m.mu.RUnlock()
 
-	if len(m.fingerprints) > 0 {
-		ja3 := faketls.JA3(ch.Raw)
-		if _, ok := m.fingerprints[ja3]; !ok {
-			return nil, fmt.Errorf("JA3 %s не в белом списке", ja3)
-		}
+	if err := m.checkFingerprints(ch); err != nil {
+		return nil, err
 	}
 
 	for i := range m.users {
 		u := &m.users[i]
-		if !u.Enabled {
+		if !u.Enabled || !u.Secret.IsFakeTLS() {
 			continue
 		}
 		if err := faketls.ValidateClientHello(ch, u.Secret.Key[:], u.Secret.Host); err != nil {
@@ -135,6 +166,26 @@ func (m *Manager) MatchClientHello(ch *faketls.ClientHello) (*User, error) {
 		return &copy, nil
 	}
 	return nil, fmt.Errorf("секрет не найден среди активных пользователей")
+}
+
+// MatchSecureHeader находит пользователя по dd obfuscated2 заголовку.
+func (m *Manager) MatchSecureHeader(header []byte) (*User, int, error) {
+	m.mu.RLock()
+	defer m.mu.RUnlock()
+
+	for i := range m.users {
+		u := &m.users[i]
+		if !u.Enabled || !u.Secret.IsSecure() {
+			continue
+		}
+		dcID, ok := obfuscated2.TryParseHeader(header, u.Secret.Key[:])
+		if !ok {
+			continue
+		}
+		copy := m.users[i]
+		return &copy, dcID, nil
+	}
+	return nil, 0, fmt.Errorf("secure секрет не найден")
 }
 
 // AddUser добавляет нового пользователя.
@@ -148,7 +199,7 @@ func (m *Manager) AddUser(u User) error {
 		}
 	}
 	m.users = append(m.users, u)
-	if u.Enabled {
+	if u.Enabled && u.Secret.Host != "" {
 		m.maskHost = u.Secret.Host
 	}
 	return nil
@@ -169,7 +220,9 @@ func (m *Manager) UpdateUser(name string, secret *mtproto.Secret, enabled *bool)
 		if enabled != nil {
 			m.users[i].Enabled = *enabled
 		}
-		m.refreshMaskHost()
+		if err := m.refreshMaskHost(); err != nil {
+			return User{}, err
+		}
 		return m.users[i], nil
 	}
 	return User{}, fmt.Errorf("пользователь %q не найден", name)
@@ -210,24 +263,49 @@ func (m *Manager) SetAllowedJA3(allowed []string) {
 	m.mu.Lock()
 	defer m.mu.Unlock()
 
-	m.fingerprints = make(map[string]struct{}, len(allowed))
+	m.ja3Allow = make(map[string]struct{}, len(allowed))
 	for _, fp := range allowed {
 		if fp != "" {
-			m.fingerprints[fp] = struct{}{}
+			m.ja3Allow[fp] = struct{}{}
 		}
 	}
 }
 
+// SetAllowedJA4 обновляет белый список JA4.
+func (m *Manager) SetAllowedJA4(allowed []string) {
+	m.mu.Lock()
+	defer m.mu.Unlock()
+
+	m.ja4Allow = make(map[string]struct{}, len(allowed))
+	for _, fp := range allowed {
+		if fp != "" {
+			m.ja4Allow[fp] = struct{}{}
+		}
+	}
+}
+
+// SetFingerprints обновляет оба whitelist.
+func (m *Manager) SetFingerprints(ja3, ja4 []string) {
+	m.SetAllowedJA3(ja3)
+	m.SetAllowedJA4(ja4)
+}
+
 func (m *Manager) refreshMaskHost() error {
 	active := 0
+	m.maskHost = ""
 	for _, u := range m.users {
 		if u.Enabled {
 			active++
-			m.maskHost = u.Secret.Host
+			if u.Secret.Host != "" {
+				m.maskHost = u.Secret.Host
+			}
 		}
 	}
 	if active == 0 {
 		return fmt.Errorf("нет активных пользователей")
+	}
+	if m.maskHost == "" {
+		m.maskHost = "www.google.com"
 	}
 	return nil
 }
@@ -241,7 +319,17 @@ func GenerateSecret(host string) (mtproto.Secret, string, error) {
 	if _, err := rand.Read(key[:]); err != nil {
 		return mtproto.Secret{}, "", err
 	}
-	secret := mtproto.Secret{Key: key, Host: host}
+	secret := mtproto.Secret{Key: key, Host: host, Mode: mtproto.FakeTLSPrefix}
+	return secret, mtproto.EncodeHex(secret), nil
+}
+
+// GenerateSecureSecret создаёт dd-секрет.
+func GenerateSecureSecret() (mtproto.Secret, string, error) {
+	var key [mtproto.KeyLength]byte
+	if _, err := rand.Read(key[:]); err != nil {
+		return mtproto.Secret{}, "", err
+	}
+	secret := mtproto.Secret{Key: key, Mode: mtproto.SecurePrefix}
 	return secret, mtproto.EncodeHex(secret), nil
 }
 

@@ -25,7 +25,7 @@ func TestMatchClientHelloMultiUser(t *testing.T) {
 	mgr, err := NewManager([]User{
 		{Name: "alice", Secret: s1, Enabled: true},
 		{Name: "bob", Secret: s2, Enabled: true},
-	}, nil)
+	}, nil, nil)
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -61,7 +61,7 @@ func TestUserCRUD(t *testing.T) {
 	s1, _ := mtproto.ParseSecret("ee367a189aee18fa31c190054efd4a8e9573746f726167652e676f6f676c65617069732e636f6d")
 	s2, _ := mtproto.ParseSecret("ee0123456789abcdef0123456789abcdef6578616d706c652e636f6d")
 
-	mgr, err := NewManager([]User{{Name: "alice", Secret: s1, Enabled: true}}, nil)
+	mgr, err := NewManager([]User{{Name: "alice", Secret: s1, Enabled: true}}, nil, nil)
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -100,7 +100,7 @@ func TestMatchClientHelloJA3Whitelist(t *testing.T) {
 	}
 	ja3 := faketls.JA3(ch.Raw)
 
-	mgrBlocked, err := NewManager([]User{{Name: "alice", Secret: secret, Enabled: true}}, []string{"deadbeef"})
+	mgrBlocked, err := NewManager([]User{{Name: "alice", Secret: secret, Enabled: true}}, []string{"deadbeef"}, nil)
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -108,7 +108,7 @@ func TestMatchClientHelloJA3Whitelist(t *testing.T) {
 		t.Fatal("ожидался отказ по JA3 whitelist")
 	}
 
-	mgr, err := NewManager([]User{{Name: "alice", Secret: secret, Enabled: true}}, []string{ja3})
+	mgr, err := NewManager([]User{{Name: "alice", Secret: secret, Enabled: true}}, []string{ja3}, nil)
 	if err != nil {
 		t.Fatal(err)
 	}

@@ -183,6 +183,7 @@ func (h *Handler) handleUserAction(w http.ResponseWriter, r *http.Request) {
 		http.Redirect(w, r, "/ui/users?error="+url.QueryEscape(err.Error()), http.StatusSeeOther)
 		return
 	}
+	_ = h.rt.PersistUsers()
 	http.Redirect(w, r, "/ui/users?flash="+url.QueryEscape("Изменения сохранены"), http.StatusSeeOther)
 }
 
@@ -237,7 +238,10 @@ func (h *Handler) createUser(r *http.Request) error {
 		return err
 	}
 
-	return h.rt.Users.AddUser(user.User{Name: name, Secret: secret, Enabled: true})
+	if err := h.rt.Users.AddUser(user.User{Name: name, Secret: secret, Enabled: true}); err != nil {
+		return err
+	}
+	return h.rt.PersistUsers()
 }
 
 func (h *Handler) saveSettings(r *http.Request) error {

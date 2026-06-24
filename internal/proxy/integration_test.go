@@ -52,14 +52,14 @@ func startTestProxy(t *testing.T, cfg config.Config) (addr string, cancel contex
 		}
 		users = append(users, user.User{Name: item.Name, Secret: secret, Enabled: true})
 	}
-	mgr, err := user.NewManager(users, cfg.TLS.AllowedJA3)
+	mgr, err := user.NewManager(users, cfg.TLS.AllowedJA3, cfg.TLS.AllowedJA4)
 	if err != nil {
 		t.Fatal(err)
 	}
 
 	ctx, cancel := context.WithCancel(context.Background())
 	rt := runtime.New("", cfg, mgr, stats.New())
-	srv := proxy.New(rt)
+	srv := proxy.New(rt, nil)
 	go func() { _ = srv.Serve(ctx) }()
 	waitForTCP(t, cfg.Addr())
 	return cfg.Addr(), cancel
@@ -157,6 +157,8 @@ func baseConfig() config.Config {
 				{Name: "bob", Secret: secretBob},
 			},
 		},
+		Protocols: config.ProtocolsConfig{FakeTLS: true, Secure: true},
+		Fronting:  config.FrontingConfig{Action: "redirect"},
 		TLS: config.TLSConfig{
 			RecordMinChunk: 256,
 			RecordMaxChunk: 1024,

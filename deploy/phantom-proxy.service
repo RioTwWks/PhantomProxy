@@ -1,0 +1,23 @@
+[Unit]
+Description=PhantomProxy Fake TLS MTProto Proxy
+After=network-online.target
+Wants=network-online.target
+
+[Service]
+Type=simple
+User=phantom
+Group=phantom
+WorkingDirectory=/opt/phantomproxy
+ExecStart=/opt/phantomproxy/telegram-proxy run -config /etc/phantomproxy/config.yaml
+Restart=on-failure
+RestartSec=5
+LimitNOFILE=65536
+
+# Hardening
+NoNewPrivileges=true
+ProtectSystem=strict
+ProtectHome=true
+ReadWritePaths=/etc/phantomproxy
+
+[Install]
+WantedBy=multi-user.target

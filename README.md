@@ -13,7 +13,13 @@
 - **Динамические TLS-записи** — случайный размер Application Data для усложнения статистического анализа DPI
 - **Multi-user** — несколько MTProto-секретов с сопоставлением по ClientHello
 - **HTTP fallback** — посторонние соединения проксируются на сайт-заглушку
-- **REST API** — управление пользователями, статистикой и конфигурацией
+- **Domain fronting** — TCP splice на mask host при невалидном TLS (probe resistance)
+- **Anti-replay** — кеш ClientHello против повторного проигрывания
+- **Протокол `dd`** — secure obfuscated2 на том же порту
+- **DRS + Split-TLS** — имитация браузерных паттернов записей
+- **Prometheus** — метрики на `:9090/metrics`
+- **SOCKS5 upstream** — выход в DC через туннель
+- **PROXY protocol** — поддержка v1 за nginx/HAProxy
 - **WebUI** — встроенный дашборд (HTMX, без внешних зависимостей)
 - **Конфигурация** — YAML + переменные окружения (`PHANTOM_*`)
 

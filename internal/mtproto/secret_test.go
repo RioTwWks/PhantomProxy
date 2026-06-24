@@ -21,12 +21,28 @@ func TestParseSecretHex(t *testing.T) {
 	}
 }
 
+func TestParseSecretSecure(t *testing.T) {
+	t.Parallel()
+
+	const raw = "dd0123456789abcdef0123456789abcdef"
+	s, err := ParseSecret(raw)
+	if err != nil {
+		t.Fatalf("ParseSecret dd: %v", err)
+	}
+	if !s.IsSecure() {
+		t.Fatal("ожидался dd-секрет")
+	}
+	if s.Host != "" {
+		t.Fatalf("dd host должен быть пустым, got %q", s.Host)
+	}
+}
+
 func TestParseSecretRejectsInvalidPrefix(t *testing.T) {
 	t.Parallel()
 
-	_, err := ParseSecret("dd0123456789abcdef0123456789abcdef6578616d706c652e636f6d")
+	_, err := ParseSecret("aa0123456789abcdef0123456789abcdef6578616d706c652e636f6d")
 	if err == nil {
-		t.Fatal("ожидалась ошибка для не-ee секрета")
+		t.Fatal("ожидалась ошибка для неверного префикса")
 	}
 }
 

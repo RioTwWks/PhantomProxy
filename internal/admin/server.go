@@ -192,6 +192,10 @@ func (s *Server) createUser(w http.ResponseWriter, r *http.Request) {
 		writeError(w, http.StatusConflict, err.Error())
 		return
 	}
+	if err := s.rt.PersistUsers(); err != nil {
+		writeError(w, http.StatusInternalServerError, err.Error())
+		return
+	}
 
 	server, port := s.proxyEndpoint(r)
 	view, _ := s.rt.Users.GetView(req.Name, server, port)
@@ -225,6 +229,10 @@ func (s *Server) updateUser(w http.ResponseWriter, r *http.Request, name string)
 		writeError(w, http.StatusNotFound, err.Error())
 		return
 	}
+	if err := s.rt.PersistUsers(); err != nil {
+		writeError(w, http.StatusInternalServerError, err.Error())
+		return
+	}
 
 	server, port := s.proxyEndpoint(r)
 	view, _ := s.rt.Users.GetView(updated.Name, server, port)
@@ -234,6 +242,10 @@ func (s *Server) updateUser(w http.ResponseWriter, r *http.Request, name string)
 func (s *Server) deleteUser(w http.ResponseWriter, _ *http.Request, name string) {
 	if err := s.rt.Users.RemoveUser(name); err != nil {
 		writeError(w, http.StatusBadRequest, err.Error())
+		return
+	}
+	if err := s.rt.PersistUsers(); err != nil {
+		writeError(w, http.StatusInternalServerError, err.Error())
 		return
 	}
 	w.WriteHeader(http.StatusNoContent)
