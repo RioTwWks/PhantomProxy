@@ -1,13 +1,13 @@
 # Зависимости
 vendor/
 node_modules/
-target/
-*.sum
 
 # Сборка и бинарники
 build/
 dist/
 bin/
+telegram-proxy
+phantom-proxy
 *.exe
 *.test
 

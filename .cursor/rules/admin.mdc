@@ -1,0 +1,33 @@
+---
+description: Правила WebUI и admin API
+globs:
+  - "internal/admin/**"
+  - "docs/API.md"
+---
+
+# Admin API и WebUI
+
+## Разделение
+
+- `/api/v1/*` — JSON (REST)
+- `/ui/*` — HTML (шаблоны + HTMX)
+
+Никогда не возвращай JSON из UI-форм без явного запроса.
+
+## Аутентификация
+
+- API: `withAuth` middleware, токен из `management.token`
+- WebUI: cookie `phantom_session`, login на `/ui/login`
+
+## Шаблоны
+
+- Базовый layout: `templates/layout.html`
+- Partials: `templates/partials/` — только HTML-фрагменты для HTMX
+- Embed: `go:embed` в `embed.go`
+
+## Изменения API
+
+При добавлении/изменении эндпоинта обнови:
+1. `internal/admin/server_test.go`
+2. `docs/API.md`
+3. WebUI handler если нужно отображение

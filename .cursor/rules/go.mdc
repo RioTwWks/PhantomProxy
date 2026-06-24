@@ -1,0 +1,34 @@
+---
+description: Правила Go-разработки для PhantomProxy
+globs:
+  - "**/*.go"
+  - "go.mod"
+  - "Makefile"
+---
+
+# Go-правила PhantomProxy
+
+Следуй `.cursorrules` и `docs/ARCHITECTURE.md`.
+
+## Импорты
+
+Модуль: `github.com/RioTwWks/PhantomProxy/internal/...`
+
+## Паттерны
+
+- Ошибки: `fmt.Errorf("контекст: %w", err)`
+- Логи: `slog.Info/Error/Warn` с структурированными полями
+- Конкурентность: `sync.RWMutex` для shared state, `sync.WaitGroup` для соединений
+- Контекст: передавай `ctx` в сетевые операции
+
+## Тесты
+
+- Файлы: `*_test.go` рядом с кодом
+- Integration: `//go:build integration` в начале файла
+- Запуск: `make test` / `make integration`
+
+## Не делать
+
+- Не игнорировать ошибки (`_ = ...`)
+- Не добавлять `pkg/` без явного запроса
+- Не использовать `crypto/tls` для MTProto-пути (только faketls/utls)

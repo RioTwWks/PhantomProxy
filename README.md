@@ -3,122 +3,191 @@
 [![Go Version](https://img.shields.io/badge/Go-1.22+-00ADD8?style=flat&logo=go)](https://go.dev/)
 [![License](https://img.shields.io/badge/License-MIT-blue.svg)](LICENSE)
 
-**PhantomProxy** — это высокопроизводительный прокси-сервер, который маскирует трафик Telegram под обычный HTTPS (TLS 1.3). Разработан для обхода DPI-фильтрации, используемой в некоторых странах для блокировки протокола MTProto.
+**PhantomProxy** — TCP-прокси, который маскирует трафик Telegram MTProto под обычный HTTPS (Fake TLS). Предназначен для обхода DPI-фильтрации, блокирующей протокол MTProto.
 
-Проект написан на **Go** — прагматичном языке с отличной поддержкой сетевого программирования и многопоточности.
+Проект написан на **Go** с акцентом на сетевое программирование, многопоточность и минимальные зависимости.
 
-## 🎯 Возможности
+## Возможности
 
-- **Fake TLS**: полная эмуляция TLS-рукопожатия с браузерными отпечатками (JA3/JA4).
-- **Динамический размер записей**: изменяет размер TLS-фреймов, чтобы нарушить статистический анализ DPI.
-- **Маскировка**: любой запрос без корректного MTProto-секрета перенаправляется на сайт-заглушку (nginx).
-- **Легкая настройка**: конфигурация через YAML/TOML, поддержка переменных окружения.
-- **Высокая производительность**: использование горутин и неблокирующего I/O.
+- **Fake TLS** — эмуляция TLS-рукопожатия с браузерными отпечатками (JA3/JA4) через `utls`
+- **Динамические TLS-записи** — случайный размер Application Data для усложнения статистического анализа DPI
+- **Multi-user** — несколько MTProto-секретов с сопоставлением по ClientHello
+- **HTTP fallback** — посторонние соединения проксируются на сайт-заглушку
+- **REST API** — управление пользователями, статистикой и конфигурацией
+- **WebUI** — встроенный дашборд (HTMX, без внешних зависимостей)
+- **Конфигурация** — YAML + переменные окружения (`PHANTOM_*`)
 
-## 🏗️ Архитектура
+## Архитектура
 
 ```mermaid
-flowchart LR
-    A[Telegram Клиент] -->|Fake TLS| B[PhantomProxy]
-    B --> C{Детектор}
-    C -->|MTProto-секрет| D[Обработчик MTProto]
-    C -->|нет секрета| E[Прокси в сайт-заглушку]
-    D --> F[Серверы Telegram]
-    E --> G[nginx]
+flowchart TB
+    subgraph clients [Клиенты]
+        TG[Telegram клиент]
+        SCAN[Браузер / сканер]
+    end
+
+    subgraph phantom [PhantomProxy]
+        ACC[TCP Acceptor :8443]
+        DET[Детектор Fake TLS]
+        MTP[MTProto relay]
+        FB[HTTP fallback]
+        ADM[Admin API + WebUI :8081]
+    end
+
+    TG -->|Fake TLS + секрет| ACC
+    SCAN --> ACC
+    ACC --> DET
+    DET -->|валидный секрет| MTP
+    DET -->|нет секрета| FB
+    MTP --> DC[Telegram DC]
+    FB --> WEB[nginx-заглушка]
+    ADM -.->|управление| ACC
 ```
 
-- **Акцептор** — слушает порт (443/13443) и принимает соединения.
-- **Детектор** — анализирует первый пакет, проверяет наличие корректного секрета.
-- **Обработчик MTProto** — проксирует трафик до серверов Telegram.
-- **Заглушка** — отдает статический сайт (или проксирует на реальный домен).
+Подробнее: [docs/ARCHITECTURE.md](docs/ARCHITECTURE.md)
 
-## 📦 Требования
+## Структура проекта
+
+```
+cmd/proxy/              — точка входа
+configs/                — пример конфигурации
+internal/
+  admin/                — REST API и WebUI
+  config/               — загрузка/сохранение YAML
+  faketls/              — Fake TLS, JA3/JA4, TLS-записи
+  fallback/             — HTTP-прокси на заглушку
+  mtproto/              — парсинг секретов
+  obfuscated2/          — obfuscated2 handshake
+  proxy/                — TCP-акцептор и маршрутизация
+  runtime/              — общее состояние, reload
+  stats/                — метрики соединений
+  telegram/             — резолв Telegram DC
+  testclient/           — тестовый MTProto-клиент
+  testdc/               — mock Telegram DC
+  user/                 — multi-user manager
+web/                    — статика для nginx-заглушки
+docs/                   — документация
+```
+
+## Требования
 
 - Go 1.22+
-- make (опционально)
-- Docker (для тестирования с заглушкой)
+- `make` (опционально)
+- Docker + Docker Compose (для локального теста с заглушкой)
 
-## 🚀 Установка и запуск
+## Установка и запуск
 
 ### Из исходников
 
 ```bash
-git clone https://github.com/your-username/PhantomProxy.git
+git clone https://github.com/RioTwWks/PhantomProxy.git
 cd PhantomProxy
 make build
-./build/PhantomProxy -config configs/config.yaml
+./telegram-proxy -config configs/config.yaml
 ```
 
-### Через `go install`
+По умолчанию:
+- прокси слушает `0.0.0.0:8443`
+- API и WebUI — `http://127.0.0.1:8081/ui/`
+
+### Через go install
 
 ```bash
-go install github.com/your-username/PhantomProxy/cmd/PhantomProxy@latest
-PhantomProxy -config ~/.config/PhantomProxy/config.yaml
+go install github.com/RioTwWks/PhantomProxy/cmd/proxy@latest
+telegram-proxy -config ~/.config/phantomproxy/config.yaml
 ```
 
-### Docker
+### Docker Compose
 
 ```bash
-docker build -t PhantomProxy .
-docker run -p 443:443 -v $(pwd)/configs:/app/configs PhantomProxy
+docker compose up --build
 ```
 
-## ⚙️ Конфигурация
+Поднимает nginx-заглушку (`:8080`), прокси (`:8443`) и WebUI (`:8081`).
 
-Пример `config.yaml`:
+## Конфигурация
+
+Пример `configs/config.yaml`:
 
 ```yaml
 listen:
   host: "0.0.0.0"
-  port: 443
-
-tls:
-  cert_file: "/path/to/cert.pem"
-  key_file: "/path/to/key.pem"
-  fake_domain: "www.google.com"     # SNI для маскировки
+  port: 8443
 
 mtproto:
-  secret: "ee0123456789abcdef..."    # префикс ee для Fake TLS
-  backend: "149.154.167.99:443"      # реальные серверы Telegram
+  backend: ""           # пусто = авто-резолв DC Telegram
+  users:
+    - name: alice
+      secret: "ee367a189aee18fa31c190054efd4a8e9573746f726167652e676f6f676c65617069732e636f6d"
+      enabled: true
+
+tls:
+  record_min_chunk: 512
+  record_max_chunk: 4096
+  noise_mean: 3000
+  noise_jitter: 800
+  # allowed_ja3: []     # опциональный белый список JA3
 
 fallback:
-  upstream: "http://localhost:8080"  # сайт-заглушка
+  upstream: "http://127.0.0.1:8080"
+
+management:
+  host: "127.0.0.1"
+  port: 8081
+  token: "change-me-in-production"
+  public_server: ""     # публичный IP/домен для tg:// ссылок в UI
 ```
 
-## 🔌 Подключение в Telegram
+### Переменные окружения
 
-Получите ссылку вида:
+Префикс `PHANTOM_`, точки заменяются на `_`:
+
+| Переменная | Пример |
+|------------|--------|
+| `PHANTOM_LISTEN_PORT` | `443` |
+| `PHANTOM_MANAGEMENT_TOKEN` | `secret-token` |
+| `PHANTOM_FALLBACK_UPSTREAM` | `http://nginx:80` |
+
+### Обратная совместимость
+
+Вместо `mtproto.users` можно указать один `mtproto.secret` — будет создан пользователь `default`.
+
+## Подключение в Telegram
+
+Ссылка формируется автоматически в WebUI (`/ui/users`) или через API:
 
 ```
-tg://proxy?server=YOUR_IP&port=443&secret=ee0123456789...
+tg://proxy?server=YOUR_IP&port=8443&secret=ee0123456789...
 ```
 
-Вставьте в Telegram, нажмите "Подключиться".
+Укажи `management.public_server`, если прокси слушает `0.0.0.0`, а ссылки нужны с публичным адресом.
 
-## 🧪 Тестирование
+## API и WebUI
+
+| Сервис | URL | Аутентификация |
+|--------|-----|----------------|
+| WebUI | `http://127.0.0.1:8081/ui/` | токен через `/ui/login` |
+| REST API | `http://127.0.0.1:8081/api/v1/` | `Authorization: Bearer <token>` или `X-API-Token` |
+| Health | `GET /api/v1/health` | без токена |
+
+Полное описание эндпоинтов: [docs/API.md](docs/API.md)
+
+## Тестирование
 
 ```bash
-make test          # unit-тесты
-make integration   # интеграционные тесты (требует Docker)
+make test          # unit-тесты (race detector)
+make integration   # интеграционные тесты (mock DC, без Docker)
+make lint          # golangci-lint (если установлен)
 ```
 
-## 🧩 MCP-интеграция
+Интеграционные тесты используют build tag `integration` и поднимают in-process mock Telegram DC.
 
-Проект поставляется с MCP-сервером на Go (официальный SDK). Добавьте в `~/.cursor/mcp.json`:
+## Разработка в Cursor
 
-```json
-{
-  "mcpServers": {
-    "PhantomProxy": {
-      "command": "PhantomProxy-mcp",
-      "args": ["--config", "/path/to/config.yaml"]
-    }
-  }
-}
-```
+- Правила проекта: [.cursorrules](.cursorrules)
+- Гайд для агентов: [AGENTS.md](AGENTS.md)
+- Локальные MCP-серверы: [.cursor/mcp.json](.cursor/mcp.json)
 
-Это позволит управлять прокси (перезагрузка, смена секретов, просмотр статистики) прямо через Cursor.
-
-## 📄 Лицензия
+## Лицензия
 
 MIT © 2026 RioTwWks
