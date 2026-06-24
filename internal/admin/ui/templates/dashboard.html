@@ -1,0 +1,19 @@
+{{define "dashboard.html"}}
+{{template "layout" .}}
+{{end}}
+
+{{define "content"}}
+<h1 class="page-title">Дашборд</h1>
+<p class="page-subtitle">Состояние прокси в реальном времени</p>
+
+<div id="stats-panel" hx-get="/ui/partials/stats" hx-trigger="load, every 5s" hx-swap="innerHTML">
+  {{template "stats_cards" .}}
+</div>
+
+<div class="panel">
+  <h2>Трафик по пользователям</h2>
+  <div id="users-stats" hx-get="/ui/partials/users-stats" hx-trigger="load, every 5s" hx-swap="innerHTML">
+    {{template "users_stats_table" .}}
+  </div>
+</div>
+{{end}}

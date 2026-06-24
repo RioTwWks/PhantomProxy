@@ -1,0 +1,26 @@
+{{define "users_stats_table"}}
+<table>
+  <thead>
+    <tr>
+      <th>Пользователь</th>
+      <th>Активные</th>
+      <th>Всего</th>
+      <th>Upload</th>
+      <th>Download</th>
+    </tr>
+  </thead>
+  <tbody>
+    {{range .Stats.Users}}
+    <tr>
+      <td>{{.Name}}</td>
+      <td>{{.ActiveConnections}}</td>
+      <td>{{.TotalConnections}}</td>
+      <td>{{formatBytes .UploadBytes}}</td>
+      <td>{{formatBytes .DownloadBytes}}</td>
+    </tr>
+    {{else}}
+    <tr><td colspan="5" style="color:var(--muted)">Нет данных</td></tr>
+    {{end}}
+  </tbody>
+</table>
+{{end}}
