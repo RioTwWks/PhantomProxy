@@ -55,6 +55,37 @@ func TestMatchClientHelloMultiUser(t *testing.T) {
 	}
 }
 
+func TestUserCRUD(t *testing.T) {
+	t.Parallel()
+
+	s1, _ := mtproto.ParseSecret("ee367a189aee18fa31c190054efd4a8e9573746f726167652e676f6f676c65617069732e636f6d")
+	s2, _ := mtproto.ParseSecret("ee0123456789abcdef0123456789abcdef6578616d706c652e636f6d")
+
+	mgr, err := NewManager([]User{{Name: "alice", Secret: s1, Enabled: true}}, nil)
+	if err != nil {
+		t.Fatal(err)
+	}
+
+	if err := mgr.AddUser(User{Name: "bob", Secret: s2, Enabled: true}); err != nil {
+		t.Fatal(err)
+	}
+	if len(mgr.Users()) != 2 {
+		t.Fatalf("users = %d", len(mgr.Users()))
+	}
+
+	disabled := false
+	if _, err := mgr.UpdateUser("bob", nil, &disabled); err != nil {
+		t.Fatal(err)
+	}
+
+	if err := mgr.RemoveUser("bob"); err != nil {
+		t.Fatal(err)
+	}
+	if len(mgr.Users()) != 1 {
+		t.Fatalf("users after remove = %d", len(mgr.Users()))
+	}
+}
+
 func TestMatchClientHelloJA3Whitelist(t *testing.T) {
 	t.Parallel()
 

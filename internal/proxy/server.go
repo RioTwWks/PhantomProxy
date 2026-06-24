@@ -9,38 +9,37 @@ import (
 	"sync"
 	"time"
 
-	"github.com/RioTwWks/PhantomProxy/internal/config"
 	"github.com/RioTwWks/PhantomProxy/internal/faketls"
 	"github.com/RioTwWks/PhantomProxy/internal/fallback"
 	"github.com/RioTwWks/PhantomProxy/internal/obfuscated2"
+	"github.com/RioTwWks/PhantomProxy/internal/runtime"
 	"github.com/RioTwWks/PhantomProxy/internal/telegram"
-	"github.com/RioTwWks/PhantomProxy/internal/user"
 )
 
 // Server принимает TCP-соединения и маршрутизирует их.
 type Server struct {
-	cfg  config.Config
-	users *user.Manager
-	ln   net.Listener
-	wg   sync.WaitGroup
+	rt *runtime.Runtime
+	ln net.Listener
+	wg sync.WaitGroup
 }
 
 // New создаёт прокси-сервер.
-func New(cfg config.Config, users *user.Manager) *Server {
-	return &Server{cfg: cfg, users: users}
+func New(rt *runtime.Runtime) *Server {
+	return &Server{rt: rt}
 }
 
 // Serve запускает прослушивание до отмены контекста.
 func (s *Server) Serve(ctx context.Context) error {
+	addr := s.rt.Snapshot().Addr()
 	var err error
-	s.ln, err = net.Listen("tcp", s.cfg.Addr())
+	s.ln, err = net.Listen("tcp", addr)
 	if err != nil {
-		return fmt.Errorf("listen %s: %w", s.cfg.Addr(), err)
+		return fmt.Errorf("listen %s: %w", addr, err)
 	}
 
 	slog.Info("прокси слушает",
-		"addr", s.cfg.Addr(),
-		"users", len(s.users.Users()),
+		"addr", addr,
+		"users", len(s.rt.Users.Users()),
 	)
 
 	go func() {
@@ -107,13 +106,14 @@ func (s *Server) handleConnection(ctx context.Context, conn net.Conn) {
 	if faketls.IsHandshakeRecord(first[0]) {
 		if err := s.handleFakeTLS(ctx, conn, first); err != nil {
 			slog.Debug("fake TLS отклонён", "remote", remote, "err", err)
-			_ = faketls.RedirectToDomain(conn, s.users.MaskHost())
+			_ = faketls.RedirectToDomain(conn, s.rt.Users.MaskHost())
 		}
 		return
 	}
 
 	slog.Debug("постороннее соединение", "remote", remote, "first_byte", fmt.Sprintf("0x%02x", first[0]))
-	if err := fallback.Serve(conn, s.cfg.Fallback.Upstream); err != nil {
+	cfg := s.rt.Snapshot()
+	if err := fallback.Serve(conn, cfg.Fallback.Upstream); err != nil {
 		slog.Debug("fallback завершился с ошибкой", "remote", remote, "err", err)
 	}
 }
@@ -126,7 +126,7 @@ func (s *Server) handleFakeTLS(ctx context.Context, conn net.Conn, first []byte)
 		return err
 	}
 
-	matched, err := s.users.MatchClientHello(ch)
+	matched, err := s.rt.Users.MatchClientHello(ch)
 	if err != nil {
 		return err
 	}
@@ -139,11 +139,12 @@ func (s *Server) handleFakeTLS(ctx context.Context, conn net.Conn, first []byte)
 		"ja4", ja4,
 	)
 
-	if err := faketls.WriteServerHelloWithNoise(conn, ch, matched.Secret.Key[:], s.cfg.NoiseParams()); err != nil {
+	cfg := s.rt.Snapshot()
+	if err := faketls.WriteServerHelloWithNoise(conn, ch, matched.Secret.Key[:], cfg.NoiseParams()); err != nil {
 		return fmt.Errorf("server hello: %w", err)
 	}
 
-	tlsConn := &faketls.RecordConn{Conn: conn, Policy: s.cfg.RecordPolicy()}
+	tlsConn := &faketls.RecordConn{Conn: conn, Policy: cfg.RecordPolicy()}
 	obfConn, dcID, err := obfuscated2.Handshake(tlsConn, tlsConn, nil)
 	if err != nil {
 		return fmt.Errorf("obfuscated2: %w", err)
@@ -153,7 +154,7 @@ func (s *Server) handleFakeTLS(ctx context.Context, conn net.Conn, first []byte)
 		return err
 	}
 
-	dcAddr, err := telegram.ResolveAddr(dcID, s.cfg.MTProto.Backend)
+	dcAddr, err := telegram.ResolveAddr(dcID, cfg.MTProto.Backend)
 	if err != nil {
 		return err
 	}
@@ -185,6 +186,9 @@ func (s *Server) handleFakeTLS(ctx context.Context, conn net.Conn, first []byte)
 		DecStream: obfConn.DecStream,
 	}
 
+	s.rt.Stats.OnConnect(matched.Name)
+	defer s.rt.Stats.OnDisconnect(matched.Name)
+
 	slog.Info("клиент подключён",
 		"user", matched.Name,
 		"remote", remoteAddr(conn),
@@ -193,6 +197,7 @@ func (s *Server) handleFakeTLS(ctx context.Context, conn net.Conn, first []byte)
 		"ja3", ja3,
 	)
 	up, down := relay(clientConn, serverConn)
+	s.rt.Stats.AddTraffic(matched.Name, up, down)
 	slog.Info("клиент отключён",
 		"user", matched.Name,
 		"remote", remoteAddr(conn),
