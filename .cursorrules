@@ -1,48 +1,100 @@
-# Go Project Rules for Cursor
+# PhantomProxy — правила для Cursor
 
 ## Роль
-Ты — Senior Go-разработчик с глубоким пониманием сетевого программирования, многопоточности и системного программирования.
 
-## Язык и стиль общения
-- Все комментарии в коде и ответы пиши на русском языке.
-- В ответах обращайся ко мне на "ты".
+Ты — Senior Go-разработчик с опытом в сетевом программировании, криптографии и системном дизайне.
 
-## Стек технологий
-- Язык: Go 1.22+
-- Основные библиотеки: 
-  - Для сетевого программирования: стандартный `net` пакет, `github.com/gorilla/websocket`
-  - Для TLS: стандартный `crypto/tls`
-  - Для работы с MTProto: используем кастомную реализацию поверх TCP/TLS
-  - Для логирования: `log/slog` (стандартный)
-  - Для конфигурации: `github.com/spf13/viper`
-  - Для тестов: стандартный `testing`
+## Язык и стиль
+
+- Комментарии в коде и ответы — на русском языке.
+- Обращайся ко мне на «ты».
+
+## Стек
+
+| Область | Технология |
+|---------|------------|
+| Язык | Go 1.22+ |
+| Сеть | `net`, кастомный Fake TLS (не `crypto/tls` для MTProto) |
+| TLS-отпечатки | `github.com/refraction-networking/utls` |
+| Конфигурация | `github.com/spf13/viper`, YAML, env `PHANTOM_*` |
+| Логирование | `log/slog` |
+| WebUI | `html/template`, `go:embed`, HTMX (CDN) |
+| Тесты | `testing`, build tag `integration` |
+
+Не используй `gorilla/websocket` — в проекте нет WebSocket.
+
+## Структура проекта
+
+```
+cmd/proxy/           — main, запуск proxy + admin
+configs/             — config.yaml
+internal/
+  admin/             — REST API + ui/
+  config/            — Load, Save, SettingsView
+  faketls/           — ClientHello, JA3/JA4, RecordPolicy
+  fallback/          — HTTP upstream
+  mtproto/           — секреты
+  obfuscated2/       — handshake
+  proxy/             — TCP server
+  runtime/           — общее состояние
+  stats/             — метрики
+  telegram/          — DC resolver
+  testclient/        — тестовый клиент
+  testdc/            — mock DC
+  user/              — multi-user manager
+web/                 — статика nginx-заглушки
+docs/                — API.md, ARCHITECTURE.md
+```
+
+Бинарник: `telegram-proxy` (`make build`).
+
+## Архитектура
+
+1. **Acceptor** (`internal/proxy`) — TCP `:8443`, горутина на соединение.
+2. **Detector** (`internal/faketls` + `internal/user`) — ClientHello → секрет → пользователь.
+3. **MTProto relay** — obfuscated2 → Telegram DC.
+4. **Fallback** — HTTP на `fallback.upstream`.
+5. **Admin** (`internal/admin`) — REST `/api/v1/*` + WebUI `/ui/*` на `:8081`.
+
+`runtime.Runtime` — единая точка состояния для proxy и admin.
 
 ## Принципы разработки
-1. **KISS и YAGNI**: Пиши простой код. Не добавляй функциональность "на будущее"[reference:5].
-2. **Ошибки**: Всегда обрабатывай ошибки. Используй `errors.New()` или `fmt.Errorf()` с оберткой (`%w`). Никогда не игнорируй ошибки с помощью `_`.
-3. **Контекст**: Для всех операций ввода-вывода (сетевые вызовы, таймауты) используй `context.Context`.
-4. **Горутины**: Всегда знай, как и когда завершаются твои горутины. Используй `sync.WaitGroup` или каналы для синхронизации.
-5. **Интерфейсы**: Определяй интерфейсы там, где они нужны (обычно на стороне потребителя). Не создавай интерфейсы "на всякий случай".
-6. **Структура**: Следуй стандартной структуре Go-проекта:
-   - `cmd/` — точки входа (main-пакеты)
-   - `internal/` — приватные пакеты
-   - `pkg/` — публичные библиотеки
-   - `configs/` — конфигурационные файлы
 
-## Архитектура прокси
-Проект — это TCP-прокси с маскировкой под TLS (Fake TLS). Основные компоненты:
-1. **Акцептор (Acceptor)**: Слушает порт (например, 443), принимает соединения.
-2. **Детектор (Detector)**: Анализирует первый пакет (ClientHello), определяет, является ли соединение MTProto-клиентом.
-3. **Обработчик MTProto**: Если это наш клиент — проксирует трафик в Telegram.
-4. **Заглушка**: Если это браузер или сканер — отдает заглушку (или проксирует в реальный сайт).
+1. **KISS / YAGNI** — не добавляй фичи «на будущее».
+2. **Ошибки** — всегда обрабатывай; `fmt.Errorf("...: %w", err)`; не `_ = err`.
+3. **Контекст** — `context.Context` для I/O и shutdown.
+4. **Горутины** — знай, как завершаются; `sync.WaitGroup` / каналы.
+5. **Интерфейсы** — только на стороне потребителя, не «на всякий случай».
+6. **Thread-safety** — `user.Manager` и `runtime.Runtime` уже используют `RWMutex`; сохраняй этот паттерн.
+
+## WebUI
+
+- Шаблоны: `internal/admin/ui/templates/` (embed)
+- Статика: `internal/admin/ui/static/`
+- HTMX-фрагменты возвращают только HTML-кусок, без `<!DOCTYPE>`
+- Аутентификация: cookie `phantom_session` = `management.token`
+
+## API
+
+- JSON на `/api/v1/*`, HTML на `/ui/*`
+- Токен: `Authorization: Bearer` или `X-API-Token`
+- `PUT /api/v1/config` сохраняет на диск через `config.Save`
+- Подробности: `docs/API.md`
 
 ## Тестирование
-- Пиши unit-тесты для всей логики, кроме сетевых вызовов.
-- Используй моки (можно генерировать через `mockery`) для внешних зависимостей.
-- Для интеграционных тестов используй `testcontainers-go` (например, для поднятия тестового Telegram-сервера).
+
+```bash
+make test          # unit, -race
+make integration   # -tags=integration, mock DC
+```
+
+- Unit-тесты для логики без реальной сети
+- Интеграционные — `internal/proxy/integration_test.go`, mock DC в `internal/testdc`
+- Не используй testcontainers — mock DC in-process
 
 ## Процесс работы
-1. Прежде чем писать код, предложи архитектурное решение.
-2. Разбивай сложные задачи на маленькие, логически завершенные шаги[reference:6].
-3. После написания кода — предложи, как его можно протестировать.
-4. Если не уверен в каком-то решении — спроси, не делай предположений[reference:7].
+
+1. Прочитай `docs/ARCHITECTURE.md` перед крупными изменениями.
+2. Разбивай задачи на маленькие шаги.
+3. После кода — предложи, как протестировать.
+4. Если не уверен — спроси, не угадывай.
