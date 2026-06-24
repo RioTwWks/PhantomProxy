@@ -24,7 +24,9 @@ make integration
 |------|-------|
 | `docs/ARCHITECTURE.md` | Изменения в proxy/faketls/obfuscated2 |
 | `docs/API.md` | Изменения в admin API или WebUI |
-| `configs/config.yaml` | Новые поля конфигурации |
+| `docs/CONFIG.md` | Новые поля конфигурации и env-переменные |
+| `CONTRIBUTING.md` | Изменения в workflow разработки |
+| `configs/config.yaml` | Пример конфигурации |
 | `.cursorrules` | Общие соглашения проекта |
 
 ## Ключевые компоненты

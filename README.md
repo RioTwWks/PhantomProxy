@@ -138,15 +138,7 @@ management:
   public_server: ""     # публичный IP/домен для tg:// ссылок в UI
 ```
 
-### Переменные окружения
-
-Префикс `PHANTOM_`, точки заменяются на `_`:
-
-| Переменная | Пример |
-|------------|--------|
-| `PHANTOM_LISTEN_PORT` | `443` |
-| `PHANTOM_MANAGEMENT_TOKEN` | `secret-token` |
-| `PHANTOM_FALLBACK_UPSTREAM` | `http://nginx:80` |
+Полный справочник полей и env-переменных: [docs/CONFIG.md](docs/CONFIG.md)
 
 ### Обратная совместимость
 
@@ -182,8 +174,9 @@ make lint          # golangci-lint (если установлен)
 
 Интеграционные тесты используют build tag `integration` и поднимают in-process mock Telegram DC.
 
-## Разработка в Cursor
+## Разработка
 
+- Руководство для контрибьюторов: [CONTRIBUTING.md](CONTRIBUTING.md)
 - Правила проекта: [.cursorrules](.cursorrules)
 - Гайд для агентов: [AGENTS.md](AGENTS.md)
 - Локальные MCP-серверы: [.cursor/mcp.json](.cursor/mcp.json)
