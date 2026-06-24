@@ -10,7 +10,6 @@ import (
 	"errors"
 	"fmt"
 	"io"
-	"math/big"
 	"net"
 	"time"
 )
@@ -40,21 +39,20 @@ type ClientHello struct {
 	CipherSuite uint16
 }
 
-// ReadClientHello читает и проверяет Fake TLS ClientHello.
+// ParseClientHello читает TLS ClientHello без проверки секрета.
+func ParseClientHello(conn io.Reader) (*ClientHello, error) {
+	return parseClientHello(conn)
+}
+
+// ReadClientHello читает и проверяет Fake TLS ClientHello (один секрет).
 func ReadClientHello(conn net.Conn, secret []byte, hostname string) (*ClientHello, error) {
-	ch, err := parseClientHello(conn)
+	ch, err := ParseClientHello(conn)
 	if err != nil {
 		return nil, err
 	}
-
-	if ch.SNI() != "" && ch.SNI() != hostname {
-		return nil, fmt.Errorf("SNI %q не совпадает с %q", ch.SNI(), hostname)
-	}
-
-	if err := validateClientHello(ch, secret); err != nil {
+	if err := ValidateClientHello(ch, secret, hostname); err != nil {
 		return nil, err
 	}
-
 	return ch, nil
 }
 
@@ -230,30 +228,7 @@ func validateClientHello(ch *ClientHello, secret []byte) error {
 
 // WriteServerHello отправляет синтетический TLS ServerHello + CCS + ApplicationData.
 func WriteServerHello(conn net.Conn, ch *ClientHello, secret []byte) error {
-	var buf bytes.Buffer
-
-	writeRecord(&buf, recordHandshake, buildServerHello(ch))
-	writeRecord(&buf, recordChangeCipher, []byte{0x01})
-
-	padLen := 1024 + randInt(3072)
-	pad := make([]byte, padLen)
-	if _, err := rand.Read(pad); err != nil {
-		return fmt.Errorf("генерация padding: %w", err)
-	}
-	writeRecord(&buf, recordApplicationData, pad)
-
-	packet := buf.Bytes()
-	for i := 0; i < randomLength; i++ {
-		packet[randomOffset+i] = 0
-	}
-
-	mac := hmac.New(sha256.New, secret)
-	mac.Write(ch.Random[:])
-	mac.Write(packet)
-	copy(packet[randomOffset:randomOffset+randomLength], mac.Sum(nil))
-
-	_, err := conn.Write(packet)
-	return err
+	return WriteServerHelloWithNoise(conn, ch, secret, NoiseParams{})
 }
 
 func buildServerHello(ch *ClientHello) []byte {
@@ -298,12 +273,4 @@ func writeRecord(buf *bytes.Buffer, recType byte, payload []byte) {
 	buf.Write([]byte{0x03, 0x03})
 	binary.Write(buf, binary.BigEndian, uint16(len(payload))) //nolint:errcheck
 	buf.Write(payload)
-}
-
-func randInt(max int) int {
-	n, err := rand.Int(rand.Reader, big.NewInt(int64(max)))
-	if err != nil {
-		return 0
-	}
-	return int(n.Int64())
 }

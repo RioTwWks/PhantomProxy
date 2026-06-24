@@ -12,22 +12,22 @@ import (
 	"github.com/RioTwWks/PhantomProxy/internal/config"
 	"github.com/RioTwWks/PhantomProxy/internal/faketls"
 	"github.com/RioTwWks/PhantomProxy/internal/fallback"
-	"github.com/RioTwWks/PhantomProxy/internal/mtproto"
 	"github.com/RioTwWks/PhantomProxy/internal/obfuscated2"
 	"github.com/RioTwWks/PhantomProxy/internal/telegram"
+	"github.com/RioTwWks/PhantomProxy/internal/user"
 )
 
 // Server принимает TCP-соединения и маршрутизирует их.
 type Server struct {
-	cfg    config.Config
-	secret mtproto.Secret
-	ln     net.Listener
-	wg     sync.WaitGroup
+	cfg  config.Config
+	users *user.Manager
+	ln   net.Listener
+	wg   sync.WaitGroup
 }
 
 // New создаёт прокси-сервер.
-func New(cfg config.Config, secret mtproto.Secret) *Server {
-	return &Server{cfg: cfg, secret: secret}
+func New(cfg config.Config, users *user.Manager) *Server {
+	return &Server{cfg: cfg, users: users}
 }
 
 // Serve запускает прослушивание до отмены контекста.
@@ -38,7 +38,10 @@ func (s *Server) Serve(ctx context.Context) error {
 		return fmt.Errorf("listen %s: %w", s.cfg.Addr(), err)
 	}
 
-	slog.Info("прокси слушает", "addr", s.cfg.Addr())
+	slog.Info("прокси слушает",
+		"addr", s.cfg.Addr(),
+		"users", len(s.users.Users()),
+	)
 
 	go func() {
 		<-ctx.Done()
@@ -104,7 +107,7 @@ func (s *Server) handleConnection(ctx context.Context, conn net.Conn) {
 	if faketls.IsHandshakeRecord(first[0]) {
 		if err := s.handleFakeTLS(ctx, conn, first); err != nil {
 			slog.Debug("fake TLS отклонён", "remote", remote, "err", err)
-			_ = faketls.RedirectToDomain(conn, s.secret.Host)
+			_ = faketls.RedirectToDomain(conn, s.users.MaskHost())
 		}
 		return
 	}
@@ -118,16 +121,29 @@ func (s *Server) handleConnection(ctx context.Context, conn net.Conn) {
 func (s *Server) handleFakeTLS(ctx context.Context, conn net.Conn, first []byte) error {
 	prefixed := &faketls.PrefixConn{Conn: conn, Prefix: first}
 
-	ch, err := faketls.ReadClientHello(prefixed, s.secret.Key[:], s.secret.Host)
+	ch, err := faketls.ParseClientHello(prefixed)
 	if err != nil {
 		return err
 	}
 
-	if err := faketls.WriteServerHello(conn, ch, s.secret.Key[:]); err != nil {
+	matched, err := s.users.MatchClientHello(ch)
+	if err != nil {
+		return err
+	}
+
+	ja3 := faketls.JA3(ch.Raw)
+	ja4 := faketls.JA4(ch.Raw)
+	slog.Debug("TLS fingerprint",
+		"user", matched.Name,
+		"ja3", ja3,
+		"ja4", ja4,
+	)
+
+	if err := faketls.WriteServerHelloWithNoise(conn, ch, matched.Secret.Key[:], s.cfg.NoiseParams()); err != nil {
 		return fmt.Errorf("server hello: %w", err)
 	}
 
-	tlsConn := &faketls.RecordConn{Conn: conn}
+	tlsConn := &faketls.RecordConn{Conn: conn, Policy: s.cfg.RecordPolicy()}
 	obfConn, dcID, err := obfuscated2.Handshake(tlsConn, tlsConn, nil)
 	if err != nil {
 		return fmt.Errorf("obfuscated2: %w", err)
@@ -169,9 +185,20 @@ func (s *Server) handleFakeTLS(ctx context.Context, conn net.Conn, first []byte)
 		DecStream: obfConn.DecStream,
 	}
 
-	slog.Info("клиент подключён", "remote", remoteAddr(conn), "dc", dcID, "backend", dcAddr)
+	slog.Info("клиент подключён",
+		"user", matched.Name,
+		"remote", remoteAddr(conn),
+		"dc", dcID,
+		"backend", dcAddr,
+		"ja3", ja3,
+	)
 	up, down := relay(clientConn, serverConn)
-	slog.Info("клиент отключён", "remote", remoteAddr(conn), "upload", up, "download", down)
+	slog.Info("клиент отключён",
+		"user", matched.Name,
+		"remote", remoteAddr(conn),
+		"upload", up,
+		"download", down,
+	)
 	return nil
 }
 

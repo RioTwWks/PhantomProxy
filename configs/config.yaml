@@ -3,10 +3,21 @@ listen:
   port: 8443
 
 mtproto:
-  # ee + 16-byte key + storage.googleapis.com
-  secret: "ee367a189aee18fa31c190054efd4a8e9573746f726167652e676f6f676c65617069732e636f6d"
-  # Пустой backend — выбор DC из заголовка клиента
   backend: ""
+  users:
+    - name: alice
+      secret: "ee367a189aee18fa31c190054efd4a8e9573746f726167652e676f6f676c65617069732e636f6d"
+      enabled: true
+    - name: bob
+      secret: "ee0123456789abcdef0123456789abcdef6578616d706c652e636f6d"
+      enabled: true
+
+tls:
+  record_min_chunk: 512
+  record_max_chunk: 4096
+  noise_mean: 3000
+  noise_jitter: 800
+  # allowed_ja3: []  # опциональный белый список JA3-отпечатков
 
 fallback:
   upstream: "http://127.0.0.1:8080"
