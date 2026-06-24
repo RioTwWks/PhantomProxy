@@ -10,6 +10,8 @@ import (
 const (
 	// FakeTLSPrefix — префикс секрета Fake TLS (0xee).
 	FakeTLSPrefix byte = 0xee
+	// SecurePrefix — префикс secure obfuscated2 (0xdd).
+	SecurePrefix byte = 0xdd
 	// KeyLength — длина ключа в секрете.
 	KeyLength = 16
 )
@@ -19,13 +21,20 @@ var (
 	ErrEmptySecret = errors.New("секрет пуст")
 )
 
-// Secret — распарсенный MTProto-секрет Fake TLS.
+// Secret — распарсенный MTProto-секрет.
 type Secret struct {
 	Key  [KeyLength]byte
 	Host string
+	Mode byte // FakeTLSPrefix или SecurePrefix
 }
 
-// ParseSecret разбирает hex- или base64-секрет Telegram.
+// IsFakeTLS возвращает true для ee-секрета.
+func (s Secret) IsFakeTLS() bool { return s.Mode == FakeTLSPrefix }
+
+// IsSecure возвращает true для dd-секрета.
+func (s Secret) IsSecure() bool { return s.Mode == SecurePrefix }
+
+// ParseSecret разбирает hex- или base64-секрет Telegram (ee или dd).
 func ParseSecret(text string) (Secret, error) {
 	if text == "" {
 		return Secret{}, ErrEmptySecret
@@ -42,8 +51,10 @@ func ParseSecret(text string) (Secret, error) {
 	if len(decoded) < 2 {
 		return Secret{}, fmt.Errorf("секрет слишком короткий: %d байт", len(decoded))
 	}
-	if decoded[0] != FakeTLSPrefix {
-		return Secret{}, fmt.Errorf("ожидался префикс ee, получен %#x", decoded[0])
+
+	mode := decoded[0]
+	if mode != FakeTLSPrefix && mode != SecurePrefix {
+		return Secret{}, fmt.Errorf("ожидался префикс ee/dd, получен %#x", mode)
 	}
 
 	payload := decoded[1:]
@@ -52,10 +63,14 @@ func ParseSecret(text string) (Secret, error) {
 	}
 
 	var s Secret
+	s.Mode = mode
 	copy(s.Key[:], payload[:KeyLength])
-	s.Host = string(payload[KeyLength:])
-	if s.Host == "" {
-		return Secret{}, errors.New("hostname в секрете пуст")
+
+	if mode == FakeTLSPrefix {
+		s.Host = string(payload[KeyLength:])
+		if s.Host == "" {
+			return Secret{}, errors.New("hostname в ee-секрете пуст")
+		}
 	}
 
 	return s, nil
@@ -63,7 +78,15 @@ func ParseSecret(text string) (Secret, error) {
 
 // EncodeHex кодирует секрет в hex-строку для Telegram.
 func EncodeHex(s Secret) string {
-	data := append([]byte{FakeTLSPrefix}, s.Key[:]...)
-	data = append(data, s.Host...)
+	data := append([]byte{s.Mode}, s.Key[:]...)
+	if s.Mode == FakeTLSPrefix {
+		data = append(data, s.Host...)
+	}
+	return hex.EncodeToString(data)
+}
+
+// EncodeSecureHex создаёт dd-секрет только с ключом.
+func EncodeSecureHex(key [KeyLength]byte) string {
+	data := append([]byte{SecurePrefix}, key[:]...)
 	return hex.EncodeToString(data)
 }

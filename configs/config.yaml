@@ -1,6 +1,7 @@
 listen:
   host: "0.0.0.0"
   port: 8443
+  proxy_protocol: false
 
 mtproto:
   backend: ""
@@ -12,12 +13,33 @@ mtproto:
       secret: "ee0123456789abcdef0123456789abcdef6578616d706c652e636f6d"
       enabled: true
 
+protocols:
+  fake_tls: true
+  secure: true
+
 tls:
   record_min_chunk: 512
   record_max_chunk: 4096
   noise_mean: 3000
   noise_jitter: 800
-  # allowed_ja3: []  # опциональный белый список JA3-отпечатков
+  enable_drs: true
+  enable_split_tls: true
+  # allowed_ja3: []
+  # allowed_ja4: []
+
+fronting:
+  enabled: true
+  port: 443
+  action: splice
+
+security:
+  antireplay_cache_mb: 1
+  max_connections_per_ip: 0
+  handshake_timeout_sec: 10
+
+upstream:
+  prefer_ip: prefer-ipv4
+  # socks5: "127.0.0.1:1080"
 
 fallback:
   upstream: "http://127.0.0.1:8080"
@@ -26,4 +48,8 @@ management:
   host: "127.0.0.1"
   port: 8081
   token: "change-me-in-production"
-  public_server: ""  # публичный IP/домен для tg:// ссылок в UI
+  public_server: ""
+
+metrics:
+  host: "127.0.0.1"
+  port: 9090

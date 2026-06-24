@@ -20,7 +20,7 @@ func TestAdminAPIUsersAndStats(t *testing.T) {
 		t.Fatal(err)
 	}
 
-	mgr, err := user.NewManager([]user.User{{Name: "alice", Secret: secret, Enabled: true}}, nil)
+	mgr, err := user.NewManager([]user.User{{Name: "alice", Secret: secret, Enabled: true}}, nil, nil)
 	if err != nil {
 		t.Fatal(err)
 	}

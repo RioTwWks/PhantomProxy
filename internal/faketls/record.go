@@ -8,11 +8,20 @@ import (
 	"net"
 )
 
+const (
+	drsInitialChunk = 1369
+	drsRampRecords  = 8
+	drsRampBytes    = 128 * 1024
+)
+
 // RecordConn снимает/добавляет TLS Application Data записи поверх TCP.
 type RecordConn struct {
 	net.Conn
-	readBuf bytes.Buffer
-	Policy  RecordPolicy
+	readBuf        bytes.Buffer
+	Policy         RecordPolicy
+	recordsWritten int
+	bytesWritten   int64
+	splitDone      bool
 }
 
 // Read читает полезную нагрузку из TLS Application Data записей.
@@ -48,26 +57,78 @@ func (c *RecordConn) Read(b []byte) (int, error) {
 func (c *RecordConn) Write(b []byte) (int, error) {
 	policy := c.Policy.Normalize()
 	total := 0
-	for len(b) > 0 {
-		chunkSize := policy.chunkSize(len(b))
-		chunk := b[:chunkSize]
 
-		var rec [5]byte
-		rec[0] = recordApplicationData
-		rec[1] = 0x03
-		rec[2] = 0x03
-		binary.BigEndian.PutUint16(rec[3:5], uint16(len(chunk)))
-
-		combined := make([]byte, 5+len(chunk))
-		copy(combined, rec[:])
-		copy(combined[5:], chunk)
-		if _, err := c.Conn.Write(combined); err != nil {
+	// Split-TLS: первая запись — 1 байт
+	if policy.EnableSplitTLS && !c.splitDone && len(b) > 0 {
+		n, err := c.writeRecord(b[:1])
+		if err != nil {
 			return total, err
 		}
-		total += len(chunk)
+		total += n
+		b = b[1:]
+		c.splitDone = true
+	}
+
+	for len(b) > 0 {
+		chunkSize := c.outboundChunkSize(policy, len(b))
+		chunk := b[:chunkSize]
+
+		n, err := c.writeRecord(chunk)
+		if err != nil {
+			return total, err
+		}
+		total += n
 		b = b[chunkSize:]
 	}
 	return total, nil
+}
+
+func (c *RecordConn) outboundChunkSize(policy RecordPolicy, remaining int) int {
+	if remaining <= policy.MinChunk {
+		return remaining
+	}
+
+	maxChunk := policy.MaxChunk
+	if policy.EnableDRS {
+		if c.recordsWritten < drsRampRecords && c.bytesWritten < drsRampBytes {
+			if maxChunk > drsInitialChunk {
+				maxChunk = drsInitialChunk
+			}
+		}
+	}
+
+	size := policy.chunkSizeWithMax(remaining, maxChunk)
+	return size
+}
+
+func (c *RecordConn) writeRecord(chunk []byte) (int, error) {
+	var rec [5]byte
+	rec[0] = recordApplicationData
+	rec[1] = 0x03
+	rec[2] = 0x03
+	binary.BigEndian.PutUint16(rec[3:5], uint16(len(chunk)))
+
+	combined := make([]byte, 5+len(chunk))
+	copy(combined, rec[:])
+	copy(combined[5:], chunk)
+	if _, err := c.Conn.Write(combined); err != nil {
+		return 0, err
+	}
+	c.recordsWritten++
+	c.bytesWritten += int64(len(chunk))
+	return len(chunk), nil
+}
+
+func (p RecordPolicy) chunkSizeWithMax(remaining, maxChunk int) int {
+	p = p.Normalize()
+	if remaining <= p.MinChunk {
+		return remaining
+	}
+	size := p.chunkSize(remaining)
+	if size > maxChunk {
+		return maxChunk
+	}
+	return size
 }
 
 // PrefixConn возвращает уже прочитанный первый байт при чтении.

@@ -17,8 +17,10 @@ import (
 
 // RecordPolicy задаёт динамический размер TLS Application Data записей.
 type RecordPolicy struct {
-	MinChunk int
-	MaxChunk int
+	MinChunk       int
+	MaxChunk       int
+	EnableDRS      bool
+	EnableSplitTLS bool
 }
 
 // DefaultRecordPolicy возвращает политику по умолчанию с рандомизацией размера.
