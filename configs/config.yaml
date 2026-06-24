@@ -1,0 +1,12 @@
+listen:
+  host: "0.0.0.0"
+  port: 8443
+
+mtproto:
+  # ee + 16-byte key + storage.googleapis.com
+  secret: "ee367a189aee18fa31c190054efd4a8e9573746f726167652e676f6f676c65617069732e636f6d"
+  # Пустой backend — выбор DC из заголовка клиента
+  backend: ""
+
+fallback:
+  upstream: "http://127.0.0.1:8080"
