@@ -13,12 +13,15 @@
 
 | Область | Технология |
 |---------|------------|
-| Язык | Go 1.22+ |
+| Язык | Go 1.22+ (`GOTOOLCHAIN=local` при сборке) |
 | Сеть | `net`, кастомный Fake TLS (не `crypto/tls` для MTProto) |
 | TLS-отпечатки | `github.com/refraction-networking/utls` |
+| Метрики | `github.com/prometheus/client_golang` |
+| Upstream | `golang.org/x/net/proxy` (SOCKS5) |
 | Конфигурация | `github.com/spf13/viper`, YAML, env `PHANTOM_*` |
 | Логирование | `log/slog` |
-| WebUI | `html/template`, `go:embed`, HTMX (CDN) |
+| WebUI | `html/template`, `go:embed`, HTMX (локально в `static/htmx.min.js`) |
+| CI | GitHub Actions (`.github/workflows/ci.yml`) |
 | Тесты | `testing`, build tag `integration` |
 
 Не используй `gorilla/websocket` — в проекте нет WebSocket.
@@ -26,75 +29,97 @@
 ## Структура проекта
 
 ```
-cmd/proxy/           — main, запуск proxy + admin
+cmd/proxy/           — CLI: run, generate, version
 configs/             — config.yaml
+deploy/              — systemd unit
 internal/
   admin/             — REST API + ui/
   config/            — Load, Save, SettingsView
-  faketls/           — ClientHello, JA3/JA4, RecordPolicy
+  faketls/           — Fake TLS, JA3/JA4, replay, fronting, DRS
   fallback/          — HTTP upstream
-  mtproto/           — секреты
-  obfuscated2/       — handshake
-  proxy/             — TCP server
-  runtime/           — общее состояние
-  stats/             — метрики
+  limit/             — лимит соединений per-IP
+  metrics/           — Prometheus /metrics
+  mtproto/           — секреты ee/dd
+  obfuscated2/       — handshake, dd header parse
+  proxy/             — TCP server, PROXY protocol
+  runtime/           — состояние, Reload, PersistUsers
+  stats/             — in-memory метрики
   telegram/          — DC resolver
+  upstream/          — SOCKS5 dialer, IPv prefer
   testclient/        — тестовый клиент
   testdc/            — mock DC
   user/              — multi-user manager
 web/                 — статика nginx-заглушки
-docs/                — API.md, ARCHITECTURE.md
+docs/                — API, ARCHITECTURE, CONFIG, DEPLOY, ROADMAP
 ```
 
 Бинарник: `telegram-proxy` (`make build`).
 
 ## Архитектура
 
-1. **Acceptor** (`internal/proxy`) — TCP `:8443`, горутина на соединение.
-2. **Detector** (`internal/faketls` + `internal/user`) — ClientHello → секрет → пользователь.
-3. **MTProto relay** — obfuscated2 → Telegram DC.
-4. **Fallback** — HTTP на `fallback.upstream`.
-5. **Admin** (`internal/admin`) — REST `/api/v1/*` + WebUI `/ui/*` на `:8081`.
+1. **Acceptor** (`internal/proxy`) — TCP, PROXY v1 (опционально), лимит per-IP.
+2. **Детектор** — `ee` (Fake TLS ClientHello) или `dd` (obfuscated2 header).
+3. **Anti-replay** — `faketls.ReplayCache` по ClientHello random.
+4. **Отклонённый TLS** — domain fronting splice / redirect / HTTP fallback (`fronting.action`).
+5. **MTProto relay** — obfuscated2 → DC (опционально через SOCKS5).
+6. **Admin** — REST `/api/v1/*` + WebUI `/ui/*` на `:8081`.
+7. **Prometheus** — `:9090/metrics` (если `metrics.port > 0`).
 
-`runtime.Runtime` — единая точка состояния для proxy и admin.
+`runtime.Runtime` — единая точка состояния (Config, Users, Stats, Replay, Limiter).
+
+## Протоколы
+
+| Режим | Префикс | Описание |
+|-------|---------|----------|
+| Fake TLS | `ee` | TLS-обёртка + obfuscated2 |
+| Secure | `dd` | Прямой obfuscated2 на том же порту |
+
+Включение: `protocols.fake_tls`, `protocols.secure` в конфиге.
 
 ## Принципы разработки
 
-1. **KISS / YAGNI** — не добавляй фичи «на будущее».
-2. **Ошибки** — всегда обрабатывай; `fmt.Errorf("...: %w", err)`; не `_ = err`.
+1. **KISS / YAGNI** — не добавляй фичи «на будущее» (см. `docs/ROADMAP.md` для v2).
+2. **Ошибки** — всегда обрабатывай; `fmt.Errorf("...: %w", err)`.
 3. **Контекст** — `context.Context` для I/O и shutdown.
-4. **Горутины** — знай, как завершаются; `sync.WaitGroup` / каналы.
-5. **Интерфейсы** — только на стороне потребителя, не «на всякий случай».
-6. **Thread-safety** — `user.Manager` и `runtime.Runtime` уже используют `RWMutex`; сохраняй этот паттерн.
+4. **Thread-safety** — `user.Manager`, `runtime.Runtime` используют `RWMutex`.
+5. **Персистентность users** — CRUD через API/UI вызывает `runtime.PersistUsers()`.
 
 ## WebUI
 
 - Шаблоны: `internal/admin/ui/templates/` (embed)
-- Статика: `internal/admin/ui/static/`
-- HTMX-фрагменты возвращают только HTML-кусок, без `<!DOCTYPE>`
-- Аутентификация: cookie `phantom_session` = `management.token`
+- Статика: `internal/admin/ui/static/` (включая `htmx.min.js`)
+- HTMX-фрагменты — только HTML-кусок, без `<!DOCTYPE>`
+- Cookie: `phantom_session` (HttpOnly, SameSite=Lax)
 
-## API
+## API и метрики
 
-- JSON на `/api/v1/*`, HTML на `/ui/*`
+- JSON: `/api/v1/*`, HTML: `/ui/*`
 - Токен: `Authorization: Bearer` или `X-API-Token`
-- `PUT /api/v1/config` сохраняет на диск через `config.Save`
-- Подробности: `docs/API.md`
+- Prometheus: `GET http://127.0.0.1:9090/metrics`
+- Документация: `docs/API.md`, `docs/CONFIG.md`
+
+## CLI
+
+```bash
+telegram-proxy run -config configs/config.yaml
+telegram-proxy generate <host>
+telegram-proxy version
+telegram-proxy -config path   # legacy
+```
 
 ## Тестирование
 
 ```bash
-make test          # unit, -race
-make integration   # -tags=integration, mock DC
+GOTOOLCHAIN=local make test
+GOTOOLCHAIN=local make integration
 ```
 
-- Unit-тесты для логики без реальной сети
-- Интеграционные — `internal/proxy/integration_test.go`, mock DC в `internal/testdc`
-- Не используй testcontainers — mock DC in-process
+- Mock DC in-process (`internal/testdc`), без testcontainers
+- CI: `.github/workflows/ci.yml`
 
 ## Процесс работы
 
-1. Прочитай `docs/ARCHITECTURE.md` перед крупными изменениями.
-2. Разбивай задачи на маленькие шаги.
-3. После кода — предложи, как протестировать.
-4. Если не уверен — спроси, не угадывай.
+1. `docs/ARCHITECTURE.md` — перед изменениями proxy/faketls
+2. `docs/ROADMAP.md` — что уже сделано и что в v2
+3. `docs/DEPLOY.md` — systemd, nginx, Prometheus
+4. При новых полях конфига — обнови `docs/CONFIG.md` и `configs/config.yaml`

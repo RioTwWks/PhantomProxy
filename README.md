@@ -1,6 +1,7 @@
 # PhantomProxy — Fake TLS MTProto-прокси на Go
 
 [![Go Version](https://img.shields.io/badge/Go-1.22+-00ADD8?style=flat&logo=go)](https://go.dev/)
+[![CI](https://github.com/RioTwWks/PhantomProxy/actions/workflows/ci.yml/badge.svg)](https://github.com/RioTwWks/PhantomProxy/actions/workflows/ci.yml)
 [![License](https://img.shields.io/badge/License-MIT-blue.svg)](LICENSE)
 
 **PhantomProxy** — TCP-прокси, который маскирует трафик Telegram MTProto под обычный HTTPS (Fake TLS). Предназначен для обхода DPI-фильтрации, блокирующей протокол MTProto.
@@ -159,6 +160,8 @@ tg://proxy?server=YOUR_IP&port=8443&secret=ee0123456789...
 ```
 
 Укажи `management.public_server`, если прокси слушает `0.0.0.0`, а ссылки нужны с публичным адресом.
+
+Подробнее: [docs/ROADMAP.md](docs/ROADMAP.md) · [docs/DEPLOY.md](docs/DEPLOY.md)
 
 ## API и WebUI
 

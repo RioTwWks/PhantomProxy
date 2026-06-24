@@ -12,22 +12,28 @@ globs:
 - `/api/v1/*` — JSON (REST)
 - `/ui/*` — HTML (шаблоны + HTMX)
 
-Никогда не возвращай JSON из UI-форм без явного запроса.
-
 ## Аутентификация
 
-- API: `withAuth` middleware, токен из `management.token`
-- WebUI: cookie `phantom_session`, login на `/ui/login`
+- API: `withAuth`, токен `management.token`
+- WebUI: cookie `phantom_session` (HttpOnly, SameSite=Lax), login `/ui/login`
+
+## Персистентность users
+
+После `AddUser` / `UpdateUser` / `RemoveUser` **всегда** вызывай `rt.PersistUsers()`:
+- `internal/admin/server.go` — REST CRUD
+- `internal/admin/ui/handler.go` — формы и toggle/delete
+
+Без этого изменения users теряются при `POST /reload`.
 
 ## Шаблоны
 
-- Базовый layout: `templates/layout.html`
-- Partials: `templates/partials/` — только HTML-фрагменты для HTMX
-- Embed: `go:embed` в `embed.go`
+- Layout: `templates/layout.html`
+- HTMX: локальный `/ui/static/htmx.min.js` (не CDN)
+- Partials: `templates/partials/` — только HTML-фрагменты
+- Embed: `internal/admin/ui/embed.go`
 
-## Изменения API
+## При изменении API
 
-При добавлении/изменении эндпоинта обнови:
 1. `internal/admin/server_test.go`
 2. `docs/API.md`
-3. WebUI handler если нужно отображение
+3. WebUI handler при необходимости

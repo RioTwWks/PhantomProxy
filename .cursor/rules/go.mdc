@@ -3,32 +3,48 @@ description: Правила Go-разработки для PhantomProxy
 globs:
   - "**/*.go"
   - "go.mod"
+  - "go.sum"
   - "Makefile"
 ---
 
 # Go-правила PhantomProxy
 
-Следуй `.cursorrules` и `docs/ARCHITECTURE.md`.
+Следуй `.cursorrules`, `docs/ARCHITECTURE.md`, `docs/ROADMAP.md`.
 
 ## Импорты
 
 Модуль: `github.com/RioTwWks/PhantomProxy/internal/...`
 
+## Пакеты (актуальные)
+
+| Пакет | Назначение |
+|-------|------------|
+| `proxy` | TCP accept, ee/dd routing, relay |
+| `faketls` | ClientHello, replay, fronting, RecordConn |
+| `obfuscated2` | Handshake, `TryParseHeader` для dd |
+| `user` | MatchClientHello, MatchSecureHeader |
+| `runtime` | Snapshot, Reload, PersistUsers |
+| `metrics` | Prometheus |
+| `upstream` | SOCKS5 dialer |
+| `limit` | ConnLimiter per-IP |
+
 ## Паттерны
 
 - Ошибки: `fmt.Errorf("контекст: %w", err)`
-- Логи: `slog.Info/Error/Warn` с структурированными полями
-- Конкурентность: `sync.RWMutex` для shared state, `sync.WaitGroup` для соединений
-- Контекст: передавай `ctx` в сетевые операции
+- Логи: `slog` со структурированными полями
+- Конкурентность: `RWMutex`, `WaitGroup`
+- Users CRUD → `runtime.PersistUsers()`
 
 ## Тесты
 
-- Файлы: `*_test.go` рядом с кодом
-- Integration: `//go:build integration` в начале файла
-- Запуск: `make test` / `make integration`
+```bash
+GOTOOLCHAIN=local make test
+GOTOOLCHAIN=local make integration   # -tags=integration
+```
 
 ## Не делать
 
-- Не игнорировать ошибки (`_ = ...`)
-- Не добавлять `pkg/` без явного запроса
-- Не использовать `crypto/tls` для MTProto-пути (только faketls/utls)
+- `crypto/tls` для MTProto-пути (только faketls/utls)
+- Игнорировать ошибки (`_ = err`)
+- Добавлять `pkg/` без запроса
+- testcontainers — mock DC in-process

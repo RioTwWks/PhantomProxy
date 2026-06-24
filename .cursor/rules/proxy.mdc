@@ -1,0 +1,47 @@
+---
+description: Правила прокси, Fake TLS и маскировки
+globs:
+  - "internal/proxy/**"
+  - "internal/faketls/**"
+  - "internal/obfuscated2/**"
+  - "internal/upstream/**"
+  - "internal/limit/**"
+  - "internal/metrics/**"
+---
+
+# Прокси и маскировка
+
+## Маршрутизация (`internal/proxy/server.go`)
+
+```
+первый байт 0x16 → Fake TLS (ee) → MatchClientHello → relay
+иначе + protocols.secure → 64 байта → MatchSecureHeader (dd) → relay
+иначе → HTTP fallback
+отклонённый ee → fronting.action: splice | redirect | fallback
+```
+
+## Domain fronting
+
+- `faketls.SpliceToHost` — TCP splice на SNI/mask host
+- `faketls.ReadRecorder` — буфер для replay байтов при splice
+- Конфиг: `fronting.enabled`, `fronting.action`, `fronting.port`
+
+## Anti-replay
+
+- `faketls.ReplayCache` в `runtime.Runtime`
+- Метрика: `phantom_replay_attacks_total`
+
+## TLS записи (исходящие)
+
+- `RecordConn` с `EnableDRS`, `EnableSplitTLS` из `tls.*` конфига
+- DRS: первые записи ~1369 байт, ramp после 8 records / 128KB
+
+## DC dial
+
+- `upstream.Dialer` — SOCKS5 + `prefer_ip`
+- Не хардкодить DC — `telegram.ResolveAddr`
+
+## Тесты
+
+Интеграция: `internal/proxy/integration_test.go` с `-tags=integration`.
+При изменении отклонённого TLS — учитывай `fronting.action` в тестах.
