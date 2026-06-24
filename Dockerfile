@@ -12,5 +12,5 @@ RUN apk add --no-cache ca-certificates
 WORKDIR /app
 COPY --from=builder /phantom-proxy /app/phantom-proxy
 COPY configs/config.yaml /app/configs/config.yaml
-EXPOSE 8443
+EXPOSE 8443 8081
 ENTRYPOINT ["/app/phantom-proxy", "-config", "/app/configs/config.yaml"]

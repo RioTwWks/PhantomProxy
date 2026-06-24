@@ -60,3 +60,10 @@ func ParseSecret(text string) (Secret, error) {
 
 	return s, nil
 }
+
+// EncodeHex кодирует секрет в hex-строку для Telegram.
+func EncodeHex(s Secret) string {
+	data := append([]byte{FakeTLSPrefix}, s.Key[:]...)
+	data = append(data, s.Host...)
+	return hex.EncodeToString(data)
+}

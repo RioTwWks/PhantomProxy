@@ -12,6 +12,8 @@ import (
 	"github.com/RioTwWks/PhantomProxy/internal/faketls"
 	"github.com/RioTwWks/PhantomProxy/internal/mtproto"
 	"github.com/RioTwWks/PhantomProxy/internal/proxy"
+	"github.com/RioTwWks/PhantomProxy/internal/runtime"
+	"github.com/RioTwWks/PhantomProxy/internal/stats"
 	"github.com/RioTwWks/PhantomProxy/internal/testclient"
 	"github.com/RioTwWks/PhantomProxy/internal/testdc"
 	"github.com/RioTwWks/PhantomProxy/internal/user"
@@ -56,7 +58,8 @@ func startTestProxy(t *testing.T, cfg config.Config) (addr string, cancel contex
 	}
 
 	ctx, cancel := context.WithCancel(context.Background())
-	srv := proxy.New(cfg, mgr)
+	rt := runtime.New("", cfg, mgr, stats.New())
+	srv := proxy.New(rt)
 	go func() { _ = srv.Serve(ctx) }()
 	waitForTCP(t, cfg.Addr())
 	return cfg.Addr(), cancel

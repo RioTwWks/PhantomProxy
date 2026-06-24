@@ -12,10 +12,32 @@ import (
 
 // Config описывает параметры прокси-сервера.
 type Config struct {
-	Listen   ListenConfig   `mapstructure:"listen"`
-	MTProto  MTProtoConfig  `mapstructure:"mtproto"`
-	TLS      TLSConfig      `mapstructure:"tls"`
-	Fallback FallbackConfig `mapstructure:"fallback"`
+	Listen      ListenConfig      `mapstructure:"listen"`
+	MTProto     MTProtoConfig     `mapstructure:"mtproto"`
+	TLS         TLSConfig         `mapstructure:"tls"`
+	Fallback    FallbackConfig    `mapstructure:"fallback"`
+	Management  ManagementConfig  `mapstructure:"management"`
+}
+
+// ManagementConfig — HTTP API управления.
+type ManagementConfig struct {
+	Host  string `mapstructure:"host"`
+	Port  int    `mapstructure:"port"`
+	Token string `mapstructure:"token"`
+}
+
+// Enabled возвращает true, если API управления включён.
+func (c ManagementConfig) Enabled() bool {
+	return c.Port > 0
+}
+
+// Addr возвращает адрес API управления.
+func (c ManagementConfig) Addr() string {
+	host := c.Host
+	if host == "" {
+		host = "127.0.0.1"
+	}
+	return fmt.Sprintf("%s:%d", host, c.Port)
 }
 
 // ListenConfig — адрес прослушивания.
@@ -79,27 +101,9 @@ func (c Config) NoiseParams() faketls.NoiseParams {
 
 // Load читает конфигурацию из файла и переменных окружения.
 func Load(path string) (Config, *user.Manager, error) {
-	v := viper.New()
-	v.SetConfigFile(path)
-	v.SetEnvPrefix("PHANTOM")
-	v.SetEnvKeyReplacer(strings.NewReplacer(".", "_"))
-	v.AutomaticEnv()
-
-	v.SetDefault("listen.host", "0.0.0.0")
-	v.SetDefault("listen.port", 443)
-	v.SetDefault("fallback.upstream", "http://127.0.0.1:8080")
-	v.SetDefault("tls.record_min_chunk", 512)
-	v.SetDefault("tls.record_max_chunk", 4096)
-	v.SetDefault("tls.noise_mean", 3000)
-	v.SetDefault("tls.noise_jitter", 800)
-
-	if err := v.ReadInConfig(); err != nil {
-		return Config{}, nil, fmt.Errorf("чтение конфигурации: %w", err)
-	}
-
-	var cfg Config
-	if err := v.Unmarshal(&cfg); err != nil {
-		return Config{}, nil, fmt.Errorf("разбор конфигурации: %w", err)
+	cfg, err := loadFile(path)
+	if err != nil {
+		return Config{}, nil, err
 	}
 
 	users, err := buildUsers(cfg.MTProto)
@@ -113,6 +117,43 @@ func Load(path string) (Config, *user.Manager, error) {
 	}
 
 	return cfg, mgr, nil
+}
+
+// LoadUsers перечитывает только пользователей из файла.
+func LoadUsers(path string) ([]user.User, error) {
+	cfg, err := loadFile(path)
+	if err != nil {
+		return nil, err
+	}
+	return buildUsers(cfg.MTProto)
+}
+
+func loadFile(path string) (Config, error) {
+	v := viper.New()
+	v.SetConfigFile(path)
+	v.SetEnvPrefix("PHANTOM")
+	v.SetEnvKeyReplacer(strings.NewReplacer(".", "_"))
+	v.AutomaticEnv()
+
+	v.SetDefault("listen.host", "0.0.0.0")
+	v.SetDefault("listen.port", 443)
+	v.SetDefault("fallback.upstream", "http://127.0.0.1:8080")
+	v.SetDefault("tls.record_min_chunk", 512)
+	v.SetDefault("tls.record_max_chunk", 4096)
+	v.SetDefault("tls.noise_mean", 3000)
+	v.SetDefault("tls.noise_jitter", 800)
+	v.SetDefault("management.host", "127.0.0.1")
+	v.SetDefault("management.port", 8081)
+
+	if err := v.ReadInConfig(); err != nil {
+		return Config{}, fmt.Errorf("чтение конфигурации: %w", err)
+	}
+
+	var cfg Config
+	if err := v.Unmarshal(&cfg); err != nil {
+		return Config{}, fmt.Errorf("разбор конфигурации: %w", err)
+	}
+	return cfg, nil
 }
 
 func buildUsers(mt MTProtoConfig) ([]user.User, error) {

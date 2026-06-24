@@ -21,3 +21,8 @@ tls:
 
 fallback:
   upstream: "http://127.0.0.1:8080"
+
+management:
+  host: "127.0.0.1"
+  port: 8081
+  token: "change-me-in-production"
