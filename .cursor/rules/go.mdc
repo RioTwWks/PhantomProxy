@@ -19,13 +19,15 @@ globs:
 
 | Пакет | Назначение |
 |-------|------------|
-| `proxy` | TCP accept, ee/dd routing, relay |
+| `proxy` | TCP accept, ee/dd routing, relay, RebindListenIfNeeded |
 | `faketls` | ClientHello, replay, fronting, RecordConn |
+| `middleproxy` | ME handshake, adtag, RPC_PROXY_REQ/ANS |
 | `obfuscated2` | Handshake, `TryParseHeader` для dd |
 | `user` | MatchClientHello, MatchSecureHeader |
 | `runtime` | Snapshot, Reload, PersistUsers |
+| `service` | systemd uninstall |
 | `metrics` | Prometheus |
-| `upstream` | SOCKS5 dialer |
+| `upstream` | SOCKS5 dialer (несовместим с ME) |
 | `limit` | ConnLimiter per-IP |
 
 ## Паттерны
@@ -38,9 +40,12 @@ globs:
 ## Тесты
 
 ```bash
-GOTOOLCHAIN=local make test
-GOTOOLCHAIN=local make integration   # -tags=integration
+GOTOOLCHAIN=local make ci           # полный цикл
+GOTOOLCHAIN=local make integration  # -tags=integration
+GOTOOLCHAIN=local make fuzz         # FuzzParseClientHello, FuzzParseSecret
 ```
+
+E2E Telegram (opt-in): `-tags=realtelegram`, `PHANTOM_E2E_TELEGRAM=1`
 
 ## Не делать
 
@@ -48,3 +53,4 @@ GOTOOLCHAIN=local make integration   # -tags=integration
 - Игнорировать ошибки (`_ = err`)
 - Добавлять `pkg/` без запроса
 - testcontainers — mock DC in-process
+- Общий шаблон `content` для всех страниц WebUI (коллизия имён)

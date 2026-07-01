@@ -4,6 +4,7 @@ globs:
   - "internal/proxy/**"
   - "internal/faketls/**"
   - "internal/obfuscated2/**"
+  - "internal/middleproxy/**"
   - "internal/upstream/**"
   - "internal/limit/**"
   - "internal/metrics/**"
@@ -19,6 +20,19 @@ globs:
 иначе → HTTP fallback
 отклонённый ee → fronting.action: splice | redirect | fallback
 ```
+
+## Relay к Telegram
+
+- **Direct** (по умолчанию): `obfuscated2.OutgoingHeader` → TCP к DC
+- **Middle proxy** (`use_middle_proxy` или `ad_tag`): `middleproxy.Dial` → RPC_PROXY_REQ/ANS
+- SOCKS5 upstream **несовместим** с ME — fallback на direct + warn в логе
+
+## Hot-reload listen
+
+- `proxy.RebindListenIfNeeded()` в `listen.go`
+- Вызывается из admin после `Reload` / `UpdateSettings`
+- Старые соединения живут до disconnect; новые — на новом порту
+- Тест: `listen_test.go`
 
 ## Domain fronting
 
@@ -36,12 +50,25 @@ globs:
 - `RecordConn` с `EnableDRS`, `EnableSplitTLS` из `tls.*` конфига
 - DRS: первые записи ~1369 байт, ramp после 8 records / 128KB
 
-## DC dial
+## Middle proxy (`internal/middleproxy`)
+
+- ME handshake: RPC_NONCE → RPC_HANDSHAKE (AES-CBC)
+- Adtag в RPC_PROXY_REQ при `FLAG_HAS_AD_TAG`
+- Конфиг: `mtproto.ad_tag`, `use_middle_proxy`, `middle_proxy_nat_ip`
+- Default endpoints: `DefaultProxiesV4` (порт 8888)
+
+## DC dial (direct mode)
 
 - `upstream.Dialer` — SOCKS5 + `prefer_ip`
-- Не хардкодить DC — `telegram.ResolveAddr`
+- `telegram.ResolveAddr` — не хардкодить DC
 
 ## Тесты
 
-Интеграция: `internal/proxy/integration_test.go` с `-tags=integration`.
+| Тип | Файл / тег |
+|-----|------------|
+| Integration | `integration_test.go`, `-tags=integration` |
+| Hot-reload | `listen_test.go` |
+| E2E Telegram | `e2e_telegram_test.go`, `-tags=realtelegram`, `PHANTOM_E2E_TELEGRAM=1` |
+| Fuzz | `faketls/fuzz_test.go`, `mtproto/secret_fuzz_test.go` |
+
 При изменении отклонённого TLS — учитывай `fronting.action` в тестах.

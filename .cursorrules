@@ -21,28 +21,30 @@
 | Конфигурация | `github.com/spf13/viper`, YAML, env `PHANTOM_*` |
 | Логирование | `log/slog` |
 | WebUI | `html/template`, `go:embed`, HTMX (локально в `static/htmx.min.js`) |
-| CI | GitHub Actions (`.github/workflows/ci.yml`) |
-| Тесты | `testing`, build tag `integration` |
+| CI | GitHub Actions: unit, integration, fuzz, e2e-telegram (opt-in) |
+| Тесты | `testing`, build tags: `integration`, `realtelegram` |
 
 Не используй `gorilla/websocket` — в проекте нет WebSocket.
 
 ## Структура проекта
 
 ```
-cmd/proxy/           — CLI: run, generate, version
+cmd/proxy/           — CLI: run, generate, uninstall, version
 configs/             — config.yaml
-deploy/              — systemd unit
+deploy/              — install.sh, uninstall.sh, phantom-proxy.service
 internal/
-  admin/             — REST API + ui/
+  admin/             — REST API + ui/ (listen rebind, service uninstall)
   config/            — Load, Save, SettingsView
   faketls/           — Fake TLS, JA3/JA4, replay, fronting, DRS
   fallback/          — HTTP upstream
   limit/             — лимит соединений per-IP
   metrics/           — Prometheus /metrics
+  middleproxy/       — ME handshake, adtag, RPC_PROXY_REQ/ANS
   mtproto/           — секреты ee/dd
   obfuscated2/       — handshake, dd header parse
-  proxy/             — TCP server, PROXY protocol
+  proxy/             — TCP server, hot-reload listen, PROXY protocol
   runtime/           — состояние, Reload, PersistUsers
+  service/           — systemd uninstall
   stats/             — in-memory метрики
   telegram/          — DC resolver
   upstream/          — SOCKS5 dialer, IPv prefer
@@ -57,11 +59,11 @@ docs/                — API, ARCHITECTURE, CONFIG, DEPLOY, ROADMAP
 
 ## Архитектура
 
-1. **Acceptor** (`internal/proxy`) — TCP, PROXY v1 (опционально), лимит per-IP.
+1. **Acceptor** (`internal/proxy`) — TCP, PROXY v1 (опционально), лимит per-IP, **hot-reload listen**.
 2. **Детектор** — `ee` (Fake TLS ClientHello) или `dd` (obfuscated2 header).
 3. **Anti-replay** — `faketls.ReplayCache` по ClientHello random.
 4. **Отклонённый TLS** — domain fronting splice / redirect / HTTP fallback (`fronting.action`).
-5. **MTProto relay** — obfuscated2 → DC (опционально через SOCKS5).
+5. **MTProto relay** — obfuscated2 → DC **direct** или через **middle proxy** (adtag).
 6. **Admin** — REST `/api/v1/*` + WebUI `/ui/*` на `:8081`.
 7. **Prometheus** — `:9090/metrics` (если `metrics.port > 0`).
 
@@ -76,25 +78,35 @@ docs/                — API, ARCHITECTURE, CONFIG, DEPLOY, ROADMAP
 
 Включение: `protocols.fake_tls`, `protocols.secure` в конфиге.
 
+## Middle proxy
+
+- Конфиг: `mtproto.ad_tag`, `use_middle_proxy`, `middle_proxy_nat_ip`
+- Пакет: `internal/middleproxy`
+- При `ad_tag` ME включается автоматически
+- Несовместимо с SOCKS5 upstream
+
 ## Принципы разработки
 
-1. **KISS / YAGNI** — не добавляй фичи «на будущее» (см. `docs/ROADMAP.md` для v2).
+1. **KISS / YAGNI** — не добавляй фичи «на будущее» (см. `docs/ROADMAP.md`).
 2. **Ошибки** — всегда обрабатывай; `fmt.Errorf("...: %w", err)`.
-3. **Контекст** — `context.Context` для I/O и shutdown.
+3. **Контекст** — `context.Context` for I/O и shutdown.
 4. **Thread-safety** — `user.Manager`, `runtime.Runtime` используют `RWMutex`.
 5. **Персистентность users** — CRUD через API/UI вызывает `runtime.PersistUsers()`.
 
 ## WebUI
 
 - Шаблоны: `internal/admin/ui/templates/` (embed)
-- Статика: `internal/admin/ui/static/` (включая `htmx.min.js`)
+- Каждая страница — свой content-блок (`dashboard_content`, `settings_content`, …)
+- Layout: `{{render .PageContent .}}`
 - HTMX-фрагменты — только HTML-кусок, без `<!DOCTYPE>`
 - Cookie: `phantom_session` (HttpOnly, SameSite=Lax)
+- Danger zone: удаление сервиса при `allow_service_uninstall: true`
 
 ## API и метрики
 
 - JSON: `/api/v1/*`, HTML: `/ui/*`
 - Токен: `Authorization: Bearer` или `X-API-Token`
+- `POST /api/v1/service/uninstall` — удаление systemd (confirm: `УДАЛИТЬ`)
 - Prometheus: `GET http://127.0.0.1:9090/metrics`
 - Документация: `docs/API.md`, `docs/CONFIG.md`
 
@@ -103,6 +115,7 @@ docs/                — API, ARCHITECTURE, CONFIG, DEPLOY, ROADMAP
 ```bash
 telegram-proxy run -config configs/config.yaml
 telegram-proxy generate <host>
+telegram-proxy uninstall [--purge]
 telegram-proxy version
 telegram-proxy -config path   # legacy
 ```
@@ -110,16 +123,25 @@ telegram-proxy -config path   # legacy
 ## Тестирование
 
 ```bash
+GOTOOLCHAIN=local make ci           # test + integration + build
 GOTOOLCHAIN=local make test
-GOTOOLCHAIN=local make integration
+GOTOOLCHAIN=local make integration  # -tags=integration
+GOTOOLCHAIN=local make fuzz         # FuzzParseClientHello, FuzzParseSecret
+```
+
+E2E против реального Telegram (opt-in):
+
+```bash
+PHANTOM_E2E_TELEGRAM=1 go test -tags=realtelegram -timeout=2m ./internal/proxy/...
 ```
 
 - Mock DC in-process (`internal/testdc`), без testcontainers
-- CI: `.github/workflows/ci.yml`
+- CI: `.github/workflows/ci.yml` (unit + integration + fuzz + e2e job)
 
 ## Процесс работы
 
-1. `docs/ARCHITECTURE.md` — перед изменениями proxy/faketls
-2. `docs/ROADMAP.md` — что уже сделано и что в v2
-3. `docs/DEPLOY.md` — systemd, nginx, Prometheus
+1. `docs/ARCHITECTURE.md` — перед изменениями proxy/faketls/middleproxy
+2. `docs/ROADMAP.md` — что сделано и что отложено
+3. `docs/DEPLOY.md` — systemd, install/uninstall, Prometheus
 4. При новых полях конфига — обнови `docs/CONFIG.md` и `configs/config.yaml`
+5. При изменении API/UI — обнови `docs/API.md`, `AGENTS.md`, `.cursor/rules/`

@@ -21,6 +21,9 @@
 - **Prometheus** — метрики на `:9090/metrics`
 - **SOCKS5 upstream** — выход в DC через туннель
 - **PROXY protocol** — поддержка v1 за nginx/HAProxy
+- **Hot-reload listen** — смена порта через API/WebUI без перезапуска
+- **Middle proxy + adtag** — ME transport и промо-тег от @MTProxybot
+- **Удаление сервиса** — одна кнопка (CLI / API / WebUI / `deploy/uninstall.sh`)
 - **WebUI** — встроенный дашборд (HTMX, без внешних зависимостей)
 - **Конфигурация** — YAML + переменные окружения (`PHANTOM_*`)
 
@@ -65,14 +68,17 @@ internal/
   fallback/             — HTTP-прокси на заглушку
   mtproto/              — парсинг секретов
   obfuscated2/          — obfuscated2 handshake
-  proxy/                — TCP-акцептор и маршрутизация
+  proxy/                — TCP-акцептор, hot-reload listen, маршрутизация
+  middleproxy/          — ME handshake, adtag, RPC_PROXY_REQ/ANS
   runtime/              — общее состояние, reload
+  service/              — systemd uninstall
   stats/                — метрики соединений
   telegram/             — резолв Telegram DC
   testclient/           — тестовый MTProto-клиент
   testdc/               — mock Telegram DC
   user/                 — multi-user manager
 web/                    — статика для nginx-заглушки
+deploy/                 — install.sh, uninstall.sh, systemd unit
 docs/                   — документация
 ```
 
@@ -123,6 +129,8 @@ listen:
 
 mtproto:
   backend: ""           # пусто = авто-резолв DC Telegram
+  # ad_tag: "..."       # 32 hex от @MTProxybot (включает middle proxy)
+  # use_middle_proxy: true
   users:
     - name: alice
       secret: "ee367a189aee18fa31c190054efd4a8e9573746f726167652e676f6f676c65617069732e636f6d"
@@ -176,9 +184,17 @@ tg://proxy?server=YOUR_IP&port=8443&secret=ee0123456789...
 ## Тестирование
 
 ```bash
+make ci            # test + integration + build
 make test          # unit-тесты (race detector)
 make integration   # интеграционные тесты (mock DC, без Docker)
+make fuzz          # fuzz ParseClientHello / ParseSecret (30s)
 make lint          # golangci-lint (если установлен)
+```
+
+E2E против реального Telegram (opt-in, нужна сеть):
+
+```bash
+PHANTOM_E2E_TELEGRAM=1 go test -tags=realtelegram -timeout=2m ./internal/proxy/...
 ```
 
 Интеграционные тесты используют build tag `integration` и поднимают in-process mock Telegram DC.
