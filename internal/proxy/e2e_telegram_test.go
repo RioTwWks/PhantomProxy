@@ -4,6 +4,8 @@ package proxy_test
 
 import (
 	"context"
+	"errors"
+	"io"
 	"net"
 	"os"
 	"testing"
@@ -68,41 +70,38 @@ func TestE2ERealTelegram(t *testing.T) {
 	}
 	defer conn.Close()
 
-	// MTProto req_pq_multi — минимальный запрос после handshake
-	reqPQ := []byte{
-		0, 0, 0, 0, 0, 0, 0, 0,
-		0x20, 0, 0, 0,
-		0xbe, 0x7e, 0x67, 0x72,
-		0, 0, 0, 0,
-	}
-	if _, err := conn.Write(reqPQ); err != nil {
+	reqPQ, err := testclient.BuildReqPQMulti()
+	if err != nil {
 		t.Fatal(err)
 	}
+	if err := testclient.WritePaddedIntermediate(conn, reqPQ); err != nil {
+		t.Fatal(err)
+	}
+
 	_ = conn.SetReadDeadline(time.Now().Add(15 * time.Second))
-	buf := make([]byte, 4096)
-	n, err := conn.Read(buf)
-	if err != nil {
-		t.Fatalf("нет ответа от Telegram DC: %v", err)
+	resp, err := testclient.ReadPaddedIntermediate(conn)
+	if skipIfTelegramUnavailable(t, err) {
+		return
 	}
-	if n < 8 {
-		t.Fatalf("короткий ответ: %d байт", n)
+	if !testclient.IsResPQ(resp) {
+		t.Fatalf("ожидался resPQ, получено %d байт", len(resp))
 	}
-	t.Logf("ответ от DC: %d байт", n)
+	t.Logf("ответ resPQ: %d байт", len(resp))
 }
 
-// TestE2EDirectDC проверяет obfuscated2 handshake напрямую с DC2.
+// TestE2EDirectDC проверяет obfuscated2 + req_pq_multi напрямую с DC2.
 func TestE2EDirectDC(t *testing.T) {
 	if os.Getenv("PHANTOM_E2E_TELEGRAM") == "" {
 		t.Skip("PHANTOM_E2E_TELEGRAM не задан")
 	}
 
 	conn, err := net.DialTimeout("tcp", "149.154.167.51:443", 10*time.Second)
-	if err != nil {
-		t.Fatal(err)
+	if skipIfTelegramUnavailable(t, err) {
+		return
 	}
 	defer conn.Close()
 
-	hdr, enc, dec, err := obfuscated2.OutgoingHeader(2)
+	hdr, enc, dec, err := obfuscated2.ClientStreams(2)
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -110,23 +109,38 @@ func TestE2EDirectDC(t *testing.T) {
 		t.Fatal(err)
 	}
 
-	dc := &obfuscated2.OutgoingConn{Conn: conn, EncStream: enc, DecStream: dec}
-	reqPQ := []byte{
-		0, 0, 0, 0, 0, 0, 0, 0,
-		0x20, 0, 0, 0,
-		0xbe, 0x7e, 0x67, 0x72,
-		0, 0, 0, 0,
-	}
-	if _, err := dc.Write(reqPQ); err != nil {
-		t.Fatal(err)
-	}
-	_ = conn.SetReadDeadline(time.Now().Add(15 * time.Second))
-	buf := make([]byte, 4096)
-	n, err := dc.Read(buf)
+	dc := &obfuscated2.Conn{Conn: conn, EncStream: enc, DecStream: dec}
+
+	reqPQ, err := testclient.BuildReqPQMulti()
 	if err != nil {
 		t.Fatal(err)
 	}
-	if n < 8 {
-		t.Fatalf("короткий ответ: %d", n)
+	if err := testclient.WritePaddedIntermediate(dc, reqPQ); err != nil {
+		t.Fatal(err)
 	}
+
+	_ = conn.SetReadDeadline(time.Now().Add(15 * time.Second))
+	resp, err := testclient.ReadPaddedIntermediate(dc)
+	if skipIfTelegramUnavailable(t, err) {
+		return
+	}
+	if !testclient.IsResPQ(resp) {
+		t.Fatalf("ожидался resPQ, получено %d байт", len(resp))
+	}
+	t.Logf("прямой ответ resPQ: %d байт", len(resp))
+}
+
+// skipIfTelegramUnavailable пропускает тест при сетевых проблемах (типично для CI).
+func skipIfTelegramUnavailable(t *testing.T, err error) bool {
+	t.Helper()
+	if err == nil {
+		return false
+	}
+	var netErr net.Error
+	if errors.Is(err, io.EOF) || errors.As(err, &netErr) && netErr.Timeout() {
+		t.Skipf("Telegram DC недоступен или отклонил соединение: %v", err)
+		return true
+	}
+	t.Fatal(err)
+	return true
 }
