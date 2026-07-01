@@ -37,7 +37,7 @@ build_proxy() {
     return
   fi
   echo "Go не найден в PATH root. Собери от своего пользователя: make build" >&2
-  echo "Затем: PHANTOM_SKIP_BUILD=1 sudo bash deploy/install.sh" >&2
+  echo "Затем: sudo bash deploy/install.sh --no-build" >&2
   exit 1
 }
 

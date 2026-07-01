@@ -4,12 +4,14 @@
 
 ```bash
 make install-service
-# или: make build && PHANTOM_SKIP_BUILD=1 sudo bash deploy/install.sh
+# или: make build && sudo bash deploy/install.sh --no-build
 ```
 
 `make install-service` сначала собирает бинарь **от твоего пользователя** (где `go` в PATH), затем вызывает `sudo` только для установки.
 
-Если запускаешь `sudo bash deploy/install.sh` напрямую, скрипт попытается собрать от пользователя, вызвавшего `sudo` (`$SUDO_USER`). Если Go не установлен — сначала `make build`, потом `PHANTOM_SKIP_BUILD=1 sudo bash deploy/install.sh`.
+Если запускаешь `sudo bash deploy/install.sh` напрямую, скрипт попытается собрать от пользователя, вызвавшего `sudo` (`$SUDO_USER`). Если Go не установлен — сначала `make build`, потом `sudo bash deploy/install.sh --no-build`.
+
+> **Важно:** `PHANTOM_SKIP_BUILD=1 sudo ...` не работает — `sudo` по умолчанию не передаёт переменные окружения. Используй флаг `--no-build`.
 
 Скрипт создаст пользователя `phantom`, установит файлы в `/opt/phantomproxy` и `/etc/phantomproxy`, включит systemd unit.
 

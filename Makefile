@@ -33,7 +33,7 @@ fuzz:
 	$(GO) test -fuzz=FuzzParseSecret -fuzztime=30s ./internal/mtproto/
 
 install-service: build
-	PHANTOM_SKIP_BUILD=1 sudo bash deploy/install.sh
+	sudo bash deploy/install.sh --no-build
 
 uninstall-service:
 	sudo bash deploy/uninstall.sh
