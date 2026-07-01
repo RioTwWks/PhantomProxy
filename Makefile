@@ -32,8 +32,8 @@ fuzz:
 	$(GO) test -fuzz=FuzzParseClientHello -fuzztime=30s ./internal/faketls/
 	$(GO) test -fuzz=FuzzParseSecret -fuzztime=30s ./internal/mtproto/
 
-install-service:
-	sudo bash deploy/install.sh
+install-service: build
+	PHANTOM_SKIP_BUILD=1 sudo bash deploy/install.sh
 
 uninstall-service:
 	sudo bash deploy/uninstall.sh
