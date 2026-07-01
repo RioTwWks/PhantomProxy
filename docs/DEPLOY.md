@@ -3,12 +3,15 @@
 ## Быстрая установка (одна команда)
 
 ```bash
-sudo make install-service
-# или
-sudo bash deploy/install.sh
+make install-service
+# или: make build && PHANTOM_SKIP_BUILD=1 sudo bash deploy/install.sh
 ```
 
-Скрипт соберёт бинарник, создаст пользователя `phantom`, установит файлы в `/opt/phantomproxy` и `/etc/phantomproxy`, включит systemd unit.
+`make install-service` сначала собирает бинарь **от твоего пользователя** (где `go` в PATH), затем вызывает `sudo` только для установки.
+
+Если запускаешь `sudo bash deploy/install.sh` напрямую, скрипт попытается собрать от пользователя, вызвавшего `sudo` (`$SUDO_USER`). Если Go не установлен — сначала `make build`, потом `PHANTOM_SKIP_BUILD=1 sudo bash deploy/install.sh`.
+
+Скрипт создаст пользователя `phantom`, установит файлы в `/opt/phantomproxy` и `/etc/phantomproxy`, включит systemd unit.
 
 ## Удаление (одна команда)
 
