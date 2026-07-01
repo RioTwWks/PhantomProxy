@@ -18,16 +18,22 @@ import (
 	"github.com/RioTwWks/PhantomProxy/internal/user"
 )
 
+// ListenRebinder перепривязывает TCP-listener прокси при смене порта.
+type ListenRebinder interface {
+	RebindListenIfNeeded() (bool, error)
+}
+
 // Server — HTTP API управления PhantomProxy.
 type Server struct {
-	rt     *runtime.Runtime
-	mgmt   config.ManagementConfig
-	server *http.Server
+	rt       *runtime.Runtime
+	mgmt     config.ManagementConfig
+	rebinder ListenRebinder
+	server   *http.Server
 }
 
 // New создаёт сервер управления.
-func New(rt *runtime.Runtime, cfg config.ManagementConfig) *Server {
-	s := &Server{rt: rt, mgmt: cfg}
+func New(rt *runtime.Runtime, cfg config.ManagementConfig, rebinder ListenRebinder) *Server {
+	s := &Server{rt: rt, mgmt: cfg, rebinder: rebinder}
 	mux := http.NewServeMux()
 	mux.HandleFunc("/api/v1/health", s.handleHealth)
 	mux.HandleFunc("/api/v1/status", s.withAuth(s.handleStatus))
@@ -39,7 +45,7 @@ func New(rt *runtime.Runtime, cfg config.ManagementConfig) *Server {
 	mux.HandleFunc("/api/v1/config", s.withAuth(s.handleConfig))
 	mux.HandleFunc("/api/v1/service/uninstall", s.withAuth(s.handleServiceUninstall))
 
-	ui.NewHandler(s.rt, cfg).Register(mux)
+	ui.NewHandler(s.rt, cfg, rebinder).Register(mux)
 
 	s.server = &http.Server{
 		Addr:              cfg.Addr(),
@@ -288,7 +294,38 @@ func (s *Server) handleReload(w http.ResponseWriter, r *http.Request) {
 		writeError(w, http.StatusInternalServerError, err.Error())
 		return
 	}
-	writeJSON(w, http.StatusOK, map[string]string{"status": "reloaded"})
+	writeJSON(w, http.StatusOK, s.reloadResponse())
+}
+
+func (s *Server) reloadResponse() map[string]any {
+	resp := map[string]any{"status": "reloaded"}
+	if s.rebinder != nil {
+		rebound, err := s.rebinder.RebindListenIfNeeded()
+		if err != nil {
+			resp["listen_rebind_error"] = err.Error()
+		} else if rebound {
+			resp["listen_rebound"] = true
+			resp["listen_addr"] = s.rt.Snapshot().Addr()
+		}
+	}
+	return resp
+}
+
+func (s *Server) applyConfigResponse(settings config.SettingsView) (map[string]any, error) {
+	if err := s.rt.UpdateSettings(settings); err != nil {
+		return nil, err
+	}
+	resp := map[string]any{"settings": config.SettingsFromConfig(s.rt.Snapshot())}
+	if s.rebinder != nil {
+		rebound, err := s.rebinder.RebindListenIfNeeded()
+		if err != nil {
+			resp["listen_rebind_error"] = err.Error()
+		} else if rebound {
+			resp["listen_rebound"] = true
+			resp["listen_addr"] = s.rt.Snapshot().Addr()
+		}
+	}
+	return resp, nil
 }
 
 type uninstallRequest struct {
@@ -340,11 +377,12 @@ func (s *Server) handleConfig(w http.ResponseWriter, r *http.Request) {
 			writeError(w, http.StatusBadRequest, "некорректный JSON")
 			return
 		}
-		if err := s.rt.UpdateSettings(settings); err != nil {
+		resp, err := s.applyConfigResponse(settings)
+		if err != nil {
 			writeError(w, http.StatusInternalServerError, err.Error())
 			return
 		}
-		writeJSON(w, http.StatusOK, config.SettingsFromConfig(s.rt.Snapshot()))
+		writeJSON(w, http.StatusOK, resp)
 	default:
 		writeError(w, http.StatusMethodNotAllowed, "метод не поддерживается")
 	}

@@ -22,7 +22,7 @@ func TestUILoginAndDashboard(t *testing.T) {
 		Management: config.ManagementConfig{Token: "secret-token"},
 	}
 	rt := runtime.New("", cfg, mgr, stats.New())
-	h := NewHandler(rt, config.ManagementConfig{Token: "secret-token"})
+	h := NewHandler(rt, config.ManagementConfig{Token: "secret-token"}, nil)
 
 	mux := http.NewServeMux()
 	h.Register(mux)
@@ -71,7 +71,7 @@ func TestUIRedirectRoot(t *testing.T) {
 	secret, _ := mtproto.ParseSecret("ee367a189aee18fa31c190054efd4a8e9573746f726167652e676f6f676c65617069732e636f6d")
 	mgr, _ := user.NewManager([]user.User{{Name: "alice", Secret: secret, Enabled: true}}, nil, nil)
 	rt := runtime.New("", config.Config{}, mgr, stats.New())
-	h := NewHandler(rt, config.ManagementConfig{})
+	h := NewHandler(rt, config.ManagementConfig{}, nil)
 	mux := http.NewServeMux()
 	h.Register(mux)
 
@@ -94,7 +94,7 @@ func TestUIServiceUninstall(t *testing.T) {
 		},
 	}
 	rt := runtime.New("", cfg, mgr, stats.New())
-	h := NewHandler(rt, cfg.Management)
+	h := NewHandler(rt, cfg.Management, nil)
 
 	mux := http.NewServeMux()
 	h.Register(mux)

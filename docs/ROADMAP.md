@@ -21,6 +21,7 @@
 | Автосохранение users при CRUD | ✅ |
 | Исправление docker-compose | ✅ |
 | systemd unit + docs/DEPLOY.md | ✅ |
+| Удаление сервиса одной кнопкой | ✅ |
 
 ## Phase 3 — Hardening ✅
 
@@ -36,18 +37,24 @@
 
 | Задача | Статус |
 |--------|--------|
-| CLI: `run`, `generate`, `version` | ✅ |
+| CLI: `run`, `generate`, `version`, `uninstall` | ✅ |
 | HTMX встроен (без CDN) | ✅ |
 | Улучшенные cookie WebUI (HttpOnly, SameSite) | ✅ |
 
-## Отложено (v2)
+## Phase 5 — v2 ✅
+
+| Задача | Статус |
+|--------|--------|
+| Hot-reload listen port | ✅ |
+| E2E против реального Telegram | ✅ (opt-in CI job) |
+| Adtag / middle proxy | ✅ |
+| Fuzz в CI | ✅ |
+
+## Отложено
 
 | Задача | Причина |
 |--------|---------|
-| Hot-reload listen port | Требует rebind listener |
-| E2E против реального Telegram | Flaky CI, нужен network |
-| Adtag / middle proxy | Сложность, низкая ценность |
 | Telegram-бот | Обёртка над API, отдельный проект |
 | Per-user byte quotas | Нужна персистентная БД |
 | Real LE cert fetch | Требует nginx sidecar |
-| Fuzz в CI | Отдельный PR |
+| Автообновление ME secret/list | Фоновый fetch getProxyConfig |
