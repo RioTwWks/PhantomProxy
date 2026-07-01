@@ -37,7 +37,7 @@ func TestAdminAPIUsersAndStats(t *testing.T) {
 	rt.Stats.OnConnect("alice")
 	rt.Stats.AddTraffic("alice", 10, 20)
 
-	srv := New(rt, cfg.Management)
+	srv := New(rt, cfg.Management, nil)
 	ts := httptest.NewServer(srv.server.Handler)
 	defer ts.Close()
 
@@ -160,7 +160,7 @@ func TestAdminAPIServiceUninstallEnabled(t *testing.T) {
 		ServiceName:           "phantom-proxy",
 	}
 	rt := runtime.New("", config.Config{Management: mgmt}, mgr, stats.New())
-	srv := New(rt, mgmt)
+	srv := New(rt, mgmt, nil)
 	ts := httptest.NewServer(srv.server.Handler)
 	defer ts.Close()
 

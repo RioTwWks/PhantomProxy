@@ -5,6 +5,9 @@ listen:
 
 mtproto:
   backend: ""
+  # ad_tag: "0123456789abcdef0123456789abcdef"  # тег от @MTProxybot
+  # use_middle_proxy: true                       # auto при ad_tag
+  # middle_proxy_nat_ip: "1.2.3.4"             # публичный IPv4 для ME handshake
   users:
     - name: alice
       secret: "ee367a189aee18fa31c190054efd4a8e9573746f726167652e676f6f676c65617069732e636f6d"

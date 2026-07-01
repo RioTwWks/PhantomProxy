@@ -111,9 +111,12 @@ type UserConfig struct {
 
 // MTProtoConfig — секреты и бэкенд Telegram.
 type MTProtoConfig struct {
-	Secret  string       `mapstructure:"secret" yaml:"secret,omitempty"`
-	Backend string       `mapstructure:"backend" yaml:"backend"`
-	Users   []UserConfig `mapstructure:"users" yaml:"users"`
+	Secret           string       `mapstructure:"secret" yaml:"secret,omitempty"`
+	Backend          string       `mapstructure:"backend" yaml:"backend"`
+	Users            []UserConfig `mapstructure:"users" yaml:"users"`
+	AdTag            string       `mapstructure:"ad_tag" yaml:"ad_tag,omitempty"`
+	UseMiddleProxy   bool         `mapstructure:"use_middle_proxy" yaml:"use_middle_proxy"`
+	MiddleProxyNatIP string       `mapstructure:"middle_proxy_nat_ip" yaml:"middle_proxy_nat_ip,omitempty"`
 }
 
 // TLSConfig — параметры Fake TLS и отпечатков.

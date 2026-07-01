@@ -63,7 +63,7 @@ management:
 | `host` | string | `0.0.0.0` | Адрес прослушивания MTProto-прокси |
 | `port` | int | `443` | Порт прослушивания |
 
-> Изменение `listen.host` / `listen.port` через API/UI записывается в файл, но **требует перезапуска процесса** для применения к TCP-listener.
+> Изменение `listen.host` / `listen.port` через API/UI применяется **без перезапуска** (hot-reload listener).
 
 **Env:** `PHANTOM_LISTEN_HOST`, `PHANTOM_LISTEN_PORT`
 
@@ -74,6 +74,9 @@ management:
 | Поле | Тип | По умолчанию | Описание |
 |------|-----|--------------|----------|
 | `backend` | string | `""` | Адрес Telegram DC (`host:port`). Пусто — авто-резолв |
+| `ad_tag` | string | `""` | 32 hex-символа от @MTProxybot для промо-канала |
+| `use_middle_proxy` | bool | `false` | Middle proxy transport (включается автоматически при `ad_tag`) |
+| `middle_proxy_nat_ip` | string | `""` | Публичный IPv4 для ME handshake (NAT/Docker) |
 | `secret` | string | — | *(устаревшее)* один секрет; создаёт пользователя `default` |
 | `users` | array | — | Список пользователей (рекомендуемый способ) |
 
@@ -209,7 +212,7 @@ services:
 | WebUI `/ui/settings` | То же, что `PUT /api/v1/config` | Нет* |
 | Редактирование YAML вручную + reload | Всё из файла | Нет |
 
-\* Кроме `listen.host` / `listen.port` — для них нужен перезапуск процесса.
+\* Все настройки, включая `listen.host` / `listen.port`, применяются без перезапуска (hot-reload listener).
 
 Файл конфигурации при сохранении через API записывается с правами `0600`.
 

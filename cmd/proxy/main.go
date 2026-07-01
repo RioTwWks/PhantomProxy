@@ -168,7 +168,7 @@ func runServer(flags runFlags) {
 	defer stop()
 
 	proxySrv := proxy.New(rt, metricsSrv)
-	adminSrv := admin.New(rt, cfg.Management)
+	adminSrv := admin.New(rt, cfg.Management, proxySrv)
 
 	errCh := make(chan error, 3)
 	go func() { errCh <- proxySrv.Serve(ctx) }()

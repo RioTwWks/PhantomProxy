@@ -115,12 +115,27 @@ stream {
 
 ## SOCKS5 upstream
 
-Для выхода в Telegram DC через туннель:
+Для выхода в Telegram DC через туннель (только **direct mode**, не middle proxy):
 
 ```yaml
 upstream:
   socks5: "127.0.0.1:1080"
 ```
+
+## Middle proxy и adtag
+
+Для промо-канала (@MTProxybot) и медиа у non-Premium:
+
+```yaml
+mtproto:
+  ad_tag: "0123456789abcdef0123456789abcdef"
+  use_middle_proxy: true
+  middle_proxy_nat_ip: "1.2.3.4"   # публичный IPv4 (обязательно за NAT)
+```
+
+При наличии `ad_tag` middle proxy включается автоматически.
+
+> SOCKS5 и middle proxy одновременно не работают — прокси переключится на direct.
 
 ## Генерация секретов
 

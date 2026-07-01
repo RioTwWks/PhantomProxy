@@ -8,7 +8,7 @@
     "fetch": {
       "command": "npx",
       "args": ["-y", "@modelcontextprotocol/server-fetch"],
-      "description": "HTTP: management API :8081, Prometheus :9090/metrics, fallback upstream"
+      "description": "HTTP: management API :8081, Prometheus :9090/metrics, fallback upstream; E2E: PHANTOM_E2E_TELEGRAM=1"
     }
   }
 }

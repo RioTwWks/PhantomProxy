@@ -8,7 +8,7 @@
 |----------|--------------|
 | [README.md](README.md) | Обзор проекта |
 | [docs/ARCHITECTURE.md](docs/ARCHITECTURE.md) | Потоки данных, пакеты |
-| [docs/ROADMAP.md](docs/ROADMAP.md) | Что реализовано и что в v2 |
+| [docs/ROADMAP.md](docs/ROADMAP.md) | Phase 1–5 и отложенное |
 | [docs/CONFIG.md](docs/CONFIG.md) | YAML и env `PHANTOM_*` |
 | [docs/API.md](docs/API.md) | REST API и WebUI |
 | [docs/DEPLOY.md](docs/DEPLOY.md) | systemd, nginx, Prometheus |
@@ -67,6 +67,7 @@ make run
 ```bash
 ./telegram-proxy run -config configs/config.yaml
 ./telegram-proxy generate www.google.com    # ee + dd секреты
+./telegram-proxy uninstall [--purge]        # удаление systemd-сервиса
 ./telegram-proxy version
 ./telegram-proxy -config path               # legacy-форма запуска
 ```
@@ -76,18 +77,20 @@ make run
 ```
 cmd/proxy/              — CLI и точка входа
 configs/                — пример config.yaml
-deploy/                 — systemd unit
+deploy/                 — install.sh, uninstall.sh, systemd unit
 internal/
   admin/                — REST API + WebUI
   config/               — Load, Save, SettingsView
-  faketls/              — Fake TLS, replay, fronting, DRS
+  faketls/              — Fake TLS, replay, fronting, DRS, fuzz
   fallback/             — HTTP upstream
   limit/                — лимит соединений per-IP
   metrics/              — Prometheus
-  mtproto/              — секреты ee/dd
+  middleproxy/          — ME handshake, adtag
+  mtproto/              — секреты ee/dd, fuzz
   obfuscated2/          — handshake
-  proxy/                — TCP server, PROXY protocol
+  proxy/                — TCP server, hot-reload listen, PROXY protocol
   runtime/              — Reload, PersistUsers
+  service/              — systemd uninstall
   stats/                — in-memory счётчики
   telegram/             — DC resolver
   upstream/             — SOCKS5 dialer
@@ -115,9 +118,8 @@ web/                    — статика nginx-заглушки
 3. Прогони тесты локально (как в CI):
    ```bash
    export GOTOOLCHAIN=local
-   make test
-   make integration   # обязательно при изменениях proxy/faketls/obfuscated2
-   make build
+   make ci            # test + integration + build
+   make fuzz          # опционально, ~1 мин
    ```
 
 4. Закоммить с понятным сообщением:
@@ -135,9 +137,11 @@ web/                    — статика nginx-заглушки
 
 1. Unit-тесты: `GOTOOLCHAIN=local go test -race ./...`
 2. Интеграционные: `GOTOOLCHAIN=local go test -race -tags=integration ./internal/proxy/...`
-3. Сборка: `GOTOOLCHAIN=local go build -o telegram-proxy ./cmd/proxy`
+3. Fuzz (30s): `FuzzParseClientHello`, `FuzzIsHandshakeRecord`, `FuzzParseSecret`
+4. Сборка: `GOTOOLCHAIN=local go build -o telegram-proxy ./cmd/proxy`
+5. E2E Telegram (opt-in job, `continue-on-error`): `-tags=realtelegram`
 
-PR не должен ломать CI. Локально воспроизведи те же команды перед пушем.
+PR не должен ломать CI. Локально: `GOTOOLCHAIN=local make ci`.
 
 ## Соглашения по коду
 
@@ -166,9 +170,13 @@ PR не должен ломать CI. Локально воспроизведи 
 
 | Команда | Назначение |
 |---------|------------|
+| `make ci` | test + integration + build |
 | `make test` | Unit-тесты, `-race` (`GOTOOLCHAIN=local`) |
 | `make integration` | E2E с mock DC (`-tags=integration`) |
+| `make fuzz` | Fuzz-тесты 30s (faketls, mtproto) |
 | `make build` | Сборка `telegram-proxy` |
+| `make install-service` | `sudo bash deploy/install.sh` |
+| `make uninstall-service` | `sudo bash deploy/uninstall.sh` |
 | `make fmt` | `go fmt ./...` |
 | `make lint` | golangci-lint (если установлен) |
 | `make clean` | Удаление бинарника и test cache |
@@ -187,7 +195,11 @@ go build -o telegram-proxy ./cmd/proxy
 | Область | Файл |
 |---------|------|
 | Unit-логика | `*_test.go` рядом с кодом |
-| Прокси E2E | `internal/proxy/integration_test.go` |
+| Прокси E2E (mock DC) | `internal/proxy/integration_test.go` |
+| Hot-reload listen | `internal/proxy/listen_test.go` |
+| E2E реальный Telegram | `internal/proxy/e2e_telegram_test.go` (`-tags=realtelegram`) |
+| Fuzz | `internal/faketls/fuzz_test.go`, `internal/mtproto/secret_fuzz_test.go` |
+| Middle proxy | `internal/middleproxy/*_test.go` |
 | Mock DC | `internal/testdc/` |
 | Тестовый клиент | `internal/testclient/` |
 
@@ -221,13 +233,11 @@ curl -s http://127.0.0.1:9090/metrics | head -20
 | Деплой / метрики | `docs/DEPLOY.md` |
 | Новая фича / план | `docs/ROADMAP.md` |
 | Пользовательский обзор | `README.md` |
-| Cursor / агенты | `AGENTS.md`, `.cursorrules` |
+| Cursor / агенты | `AGENTS.md`, `.cursorrules`, `.cursor/rules/` |
 
 ## Pull Request checklist
 
-- [ ] `GOTOOLCHAIN=local make test` проходит
-- [ ] `GOTOOLCHAIN=local make integration` прогнан (если затронут data path)
-- [ ] `make build` успешен
+- [ ] `GOTOOLCHAIN=local make ci` проходит
 - [ ] Документация обновлена
 - [ ] Users CRUD вызывает `PersistUsers()` (если менял admin/UI)
 - [ ] Нет хардкода секретов и токенов
@@ -246,7 +256,7 @@ test: покрыть MatchSecureHeader для dd
 ## Вопросы и баги
 
 - **Баг:** шаги воспроизведения, `go version`, фрагмент конфига (без секретов), логи
-- **Фича:** use case и ожидаемое поведение; сверься с `docs/ROADMAP.md` (v2)
+- **Фича:** use case и ожидаемое поведение; сверься с `docs/ROADMAP.md`
 
 ## Лицензия
 

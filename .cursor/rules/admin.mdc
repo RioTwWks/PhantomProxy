@@ -25,15 +25,30 @@ globs:
 
 Без этого изменения users теряются при `POST /reload`.
 
+## Hot-reload listen
+
+- `admin.New(rt, cfg, rebinder)` — rebinder = `*proxy.Server`
+- После `Reload` / `UpdateSettings` → `RebindListenIfNeeded()`
+- API: `listen_rebound`, `listen_addr` в ответе
+- UI: flash-сообщение с новым адресом
+
+## Удаление сервиса
+
+- `POST /api/v1/service/uninstall` — confirm: `УДАЛИТЬ`
+- WebUI: danger zone при `allow_service_uninstall: true`
+- Пакет: `internal/service` (ScheduleUninstall)
+
 ## Шаблоны
 
-- Layout: `templates/layout.html`
+- Layout: `templates/layout.html` — `{{render .PageContent .}}`
+- Content-блоки: `dashboard_content`, `settings_content`, `users_content` (не общий `content`!)
 - HTMX: локальный `/ui/static/htmx.min.js` (не CDN)
 - Partials: `templates/partials/` — только HTML-фрагменты
 - Embed: `internal/admin/ui/embed.go`
+- Func `render` в `NewHandler` для динамического content-блока
 
 ## При изменении API
 
 1. `internal/admin/server_test.go`
 2. `docs/API.md`
-3. WebUI handler при необходимости
+3. WebUI handler + `handler_test.go` при необходимости

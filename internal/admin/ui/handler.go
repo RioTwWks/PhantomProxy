@@ -21,13 +21,18 @@ const sessionCookie = "phantom_session"
 
 // Handler обслуживает WebUI.
 type Handler struct {
-	rt   *runtime.Runtime
-	mgmt config.ManagementConfig
-	tmpl *template.Template
+	rt       *runtime.Runtime
+	mgmt     config.ManagementConfig
+	rebinder adminListenRebinder
+	tmpl     *template.Template
+}
+
+type adminListenRebinder interface {
+	RebindListenIfNeeded() (bool, error)
 }
 
 // NewHandler создаёт UI handler.
-func NewHandler(rt *runtime.Runtime, mgmt config.ManagementConfig) *Handler {
+func NewHandler(rt *runtime.Runtime, mgmt config.ManagementConfig, rebinder adminListenRebinder) *Handler {
 	var root *template.Template
 	root = template.New("").Funcs(template.FuncMap{
 		"formatBytes": formatBytes,
@@ -40,7 +45,7 @@ func NewHandler(rt *runtime.Runtime, mgmt config.ManagementConfig) *Handler {
 		},
 	})
 	root = template.Must(root.ParseFS(Templates(), "*.html", "partials/*.html"))
-	return &Handler{rt: rt, mgmt: mgmt, tmpl: root}
+	return &Handler{rt: rt, mgmt: mgmt, rebinder: rebinder, tmpl: root}
 }
 
 // Register добавляет UI-маршруты на mux.
@@ -211,7 +216,15 @@ func (h *Handler) handleSettings(w http.ResponseWriter, r *http.Request) {
 			h.render(w, "settings.html", h.settingsPageData(r, err.Error()))
 			return
 		}
-		http.Redirect(w, r, "/ui/settings?flash="+url.QueryEscape("Настройки сохранены"), http.StatusSeeOther)
+		msg := "Настройки сохранены"
+		if h.rebinder != nil {
+			if rebound, err := h.rebinder.RebindListenIfNeeded(); err != nil {
+				msg = "Сохранено, но rebind: " + err.Error()
+			} else if rebound {
+				msg = "Настройки сохранены, listen: " + h.rt.Snapshot().Addr()
+			}
+		}
+		http.Redirect(w, r, "/ui/settings?flash="+url.QueryEscape(msg), http.StatusSeeOther)
 	default:
 		http.Error(w, "method not allowed", http.StatusMethodNotAllowed)
 	}
@@ -226,7 +239,15 @@ func (h *Handler) handleReload(w http.ResponseWriter, r *http.Request) {
 		http.Redirect(w, r, "/ui/settings?error="+url.QueryEscape(err.Error()), http.StatusSeeOther)
 		return
 	}
-	http.Redirect(w, r, "/ui/settings?flash="+url.QueryEscape("Конфигурация перезагружена"), http.StatusSeeOther)
+	msg := "Конфигурация перезагружена"
+	if h.rebinder != nil {
+		if rebound, err := h.rebinder.RebindListenIfNeeded(); err != nil {
+			msg = "Перезагружено, но rebind: " + err.Error()
+		} else if rebound {
+			msg = "Конфигурация перезагружена, listen: " + h.rt.Snapshot().Addr()
+		}
+	}
+	http.Redirect(w, r, "/ui/settings?flash="+url.QueryEscape(msg), http.StatusSeeOther)
 }
 
 func (h *Handler) handleServiceUninstall(w http.ResponseWriter, r *http.Request) {
