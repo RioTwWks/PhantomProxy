@@ -34,9 +34,11 @@ type FrontingConfig struct {
 
 // SecurityConfig — anti-replay и лимиты.
 type SecurityConfig struct {
-	AntireplayCacheMB  int `mapstructure:"antireplay_cache_mb" yaml:"antireplay_cache_mb"`
-	MaxConnectionsPerIP int `mapstructure:"max_connections_per_ip" yaml:"max_connections_per_ip"`
-	HandshakeTimeoutSec int `mapstructure:"handshake_timeout_sec" yaml:"handshake_timeout_sec"`
+	AntireplayCacheMB         int `mapstructure:"antireplay_cache_mb" yaml:"antireplay_cache_mb"`
+	MaxConnectionsPerIP       int `mapstructure:"max_connections_per_ip" yaml:"max_connections_per_ip"`
+	HandshakeTimeoutSec       int `mapstructure:"handshake_timeout_sec" yaml:"handshake_timeout_sec"`
+	ProbeBlacklistThreshold   int `mapstructure:"probe_blacklist_threshold" yaml:"probe_blacklist_threshold"`
+	ProbeBlacklistDurationSec int `mapstructure:"probe_blacklist_duration_sec" yaml:"probe_blacklist_duration_sec"`
 }
 
 // ProtocolsConfig — поддерживаемые режимы MTProto.
@@ -121,19 +123,27 @@ type MTProtoConfig struct {
 
 // TLSConfig — параметры Fake TLS и отпечатков.
 type TLSConfig struct {
-	RecordMinChunk int      `mapstructure:"record_min_chunk" yaml:"record_min_chunk"`
-	RecordMaxChunk int      `mapstructure:"record_max_chunk" yaml:"record_max_chunk"`
-	NoiseMean      int      `mapstructure:"noise_mean" yaml:"noise_mean"`
-	NoiseJitter    int      `mapstructure:"noise_jitter" yaml:"noise_jitter"`
-	AllowedJA3     []string `mapstructure:"allowed_ja3" yaml:"allowed_ja3,omitempty"`
-	AllowedJA4     []string `mapstructure:"allowed_ja4" yaml:"allowed_ja4,omitempty"`
-	EnableDRS      bool     `mapstructure:"enable_drs" yaml:"enable_drs"`
-	EnableSplitTLS bool     `mapstructure:"enable_split_tls" yaml:"enable_split_tls"`
+	RecordMinChunk               int      `mapstructure:"record_min_chunk" yaml:"record_min_chunk"`
+	RecordMaxChunk               int      `mapstructure:"record_max_chunk" yaml:"record_max_chunk"`
+	NoiseMean                    int      `mapstructure:"noise_mean" yaml:"noise_mean"`
+	NoiseJitter                  int      `mapstructure:"noise_jitter" yaml:"noise_jitter"`
+	AllowedJA3                   []string `mapstructure:"allowed_ja3" yaml:"allowed_ja3,omitempty"`
+	AllowedJA4                   []string `mapstructure:"allowed_ja4" yaml:"allowed_ja4,omitempty"`
+	EnableDRS                    bool     `mapstructure:"enable_drs" yaml:"enable_drs"`
+	EnableSplitTLS               bool     `mapstructure:"enable_split_tls" yaml:"enable_split_tls"`
+	FingerprintPool              []string `mapstructure:"fingerprint_pool" yaml:"fingerprint_pool,omitempty"`
+	FingerprintRotation          string   `mapstructure:"fingerprint_rotation" yaml:"fingerprint_rotation,omitempty"`
+	FingerprintRotationInterval  int      `mapstructure:"fingerprint_rotation_interval_sec" yaml:"fingerprint_rotation_interval_sec,omitempty"`
+	FingerprintAdaptiveThreshold int      `mapstructure:"fingerprint_adaptive_threshold" yaml:"fingerprint_adaptive_threshold,omitempty"`
+	SNIPool                      []string `mapstructure:"sni_pool" yaml:"sni_pool,omitempty"`
+	SNIRotation                  string   `mapstructure:"sni_rotation" yaml:"sni_rotation,omitempty"`
+	SNIRotationInterval          int      `mapstructure:"sni_rotation_interval_sec" yaml:"sni_rotation_interval_sec,omitempty"`
 }
 
 // FallbackConfig — сайт-заглушка для посторонних соединений.
 type FallbackConfig struct {
 	Upstream string `mapstructure:"upstream" yaml:"upstream"`
+	Honeypot bool   `mapstructure:"honeypot" yaml:"honeypot"`
 }
 
 // Addr возвращает адрес прослушивания в формате host:port.
@@ -246,6 +256,11 @@ func loadFile(path string) (Config, error) {
 	v.SetDefault("tls.noise_jitter", 800)
 	v.SetDefault("tls.enable_drs", true)
 	v.SetDefault("tls.enable_split_tls", true)
+	v.SetDefault("tls.fingerprint_rotation", "per_connection")
+	v.SetDefault("tls.fingerprint_rotation_interval_sec", 300)
+	v.SetDefault("tls.fingerprint_adaptive_threshold", 20)
+	v.SetDefault("tls.sni_rotation", "per_connection")
+	v.SetDefault("tls.sni_rotation_interval_sec", 300)
 	v.SetDefault("management.host", "127.0.0.1")
 	v.SetDefault("management.port", 8081)
 	v.SetDefault("management.service_name", "phantom-proxy")
@@ -255,6 +270,9 @@ func loadFile(path string) (Config, error) {
 	v.SetDefault("fronting.action", "splice")
 	v.SetDefault("security.antireplay_cache_mb", 1)
 	v.SetDefault("security.handshake_timeout_sec", 10)
+	v.SetDefault("security.probe_blacklist_threshold", 0)
+	v.SetDefault("security.probe_blacklist_duration_sec", 3600)
+	v.SetDefault("fallback.honeypot", false)
 	v.SetDefault("protocols.fake_tls", true)
 	v.SetDefault("protocols.secure", true)
 	v.SetDefault("upstream.prefer_ip", "prefer-ipv4")

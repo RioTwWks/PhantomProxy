@@ -27,6 +27,18 @@ tls:
   noise_jitter: 800
   enable_drs: true
   enable_split_tls: true
+  # fingerprint_pool:
+  #   - chrome_auto
+  #   - firefox_120
+  #   - edge_auto
+  # fingerprint_rotation: per_connection  # per_connection | time_based | adaptive
+  # fingerprint_rotation_interval_sec: 300
+  # fingerprint_adaptive_threshold: 20
+  # sni_pool:
+  #   - cloudflare.com
+  #   - google.com
+  # sni_rotation: per_connection
+  # sni_rotation_interval_sec: 300
   # allowed_ja3: []
   # allowed_ja4: []
 
@@ -39,6 +51,8 @@ security:
   antireplay_cache_mb: 1
   max_connections_per_ip: 0
   handshake_timeout_sec: 10
+  # probe_blacklist_threshold: 10
+  # probe_blacklist_duration_sec: 3600
 
 upstream:
   prefer_ip: prefer-ipv4
@@ -46,6 +60,7 @@ upstream:
 
 fallback:
   upstream: "http://127.0.0.1:8080"
+  # honeypot: true
 
 management:
   host: "127.0.0.1"

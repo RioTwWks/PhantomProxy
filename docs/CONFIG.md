@@ -113,6 +113,20 @@ ee + <16 байт ключа> + <домен маскировки>
 | `noise_mean` | int | `3000` | Средний размер padding в ServerHello |
 | `noise_jitter` | int | `800` | Разброс padding ServerHello |
 | `allowed_ja3` | []string | `[]` | Белый список JA3-отпечатков; пусто — все разрешены |
+| `allowed_ja4` | []string | `[]` | Белый список JA4-отпечатков; пусто — все разрешены |
+| `enable_drs` | bool | `true` | Dynamic Record Sizing |
+| `enable_split_tls` | bool | `true` | Split-TLS (первая запись 1 байт) |
+| `fingerprint_pool` | []string | см. ниже | Пул имён TLS-отпечатков (utls) |
+| `fingerprint_rotation` | string | `per_connection` | `per_connection`, `time_based`, `adaptive` |
+| `fingerprint_rotation_interval_sec` | int | `300` | Интервал для `time_based` (сек) |
+| `fingerprint_adaptive_threshold` | int | `20` | Порог отклонений для `adaptive` |
+| `sni_pool` | []string | `[]` | Пул SNI для fronting/fallback |
+| `sni_rotation` | string | `per_connection` | `per_connection` или `time_based` |
+| `sni_rotation_interval_sec` | int | `300` | Интервал для `time_based` SNI (сек) |
+
+По умолчанию `fingerprint_pool`: `chrome_auto`, `chrome_120`, `chrome_120_pq`, `firefox_auto`, `firefox_120`, `edge_auto`, `safari_auto`.
+
+Допустимые имена отпечатков: `chrome_auto`, `chrome_120`, `chrome_120_pq`, `firefox_auto`, `firefox_120`, `edge_auto`, `safari_auto` и др. (см. `internal/faketls/pool.go`).
 
 **Env:**
 
@@ -133,8 +147,9 @@ ee + <16 байт ключа> + <домен маскировки>
 | Поле | Тип | По умолчанию | Описание |
 |------|-----|--------------|----------|
 | `upstream` | string | `http://127.0.0.1:8080` | HTTP upstream для не-MTProto соединений |
+| `honeypot` | bool | `false` | Режим honeypot: GET/HEAD + HTML-заглушка вместо upstream |
 
-**Env:** `PHANTOM_FALLBACK_UPSTREAM`
+**Env:** `PHANTOM_FALLBACK_UPSTREAM`, `PHANTOM_FALLBACK_HONEYPOT`
 
 ---
 

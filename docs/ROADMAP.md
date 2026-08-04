@@ -50,6 +50,15 @@
 | Adtag / middle proxy | ✅ |
 | Fuzz в CI | ✅ |
 
+## Phase 6 — TLS/SNI ротация и honeypot ✅
+
+| Задача | Статус |
+|--------|--------|
+| Пул TLS-отпечатков (per_connection / time_based / adaptive) | ✅ |
+| Пул SNI с ротацией для fronting/fallback | ✅ |
+| Honeypot HTTP fallback (GET/HEAD) | ✅ |
+| Probe blacklist по IP | ✅ |
+
 ## Отложено
 
 | Задача | Причина |
