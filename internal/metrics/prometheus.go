@@ -20,12 +20,15 @@ type Server struct {
 	server *http.Server
 	reg    *prometheus.Registry
 
-	activeConns   prometheus.Gauge
-	totalConns    prometheus.Counter
-	uploadBytes   prometheus.Counter
-	downloadBytes prometheus.Counter
-	replayAttacks prometheus.Counter
-	frontingConns prometheus.Counter
+	activeConns        prometheus.Gauge
+	totalConns         prometheus.Counter
+	uploadBytes        prometheus.Counter
+	downloadBytes      prometheus.Counter
+	replayAttacks      prometheus.Counter
+	frontingConns      prometheus.Counter
+	fakeTLSRejected    prometheus.Counter
+	probeRequests      prometheus.Counter
+	probeBlacklisted   prometheus.Counter
 }
 
 // New создаёт metrics server.
@@ -57,10 +60,22 @@ func New(rt *runtime.Runtime, cfg config.MetricsConfig) *Server {
 		Name: "phantom_fronting_connections_total",
 		Help: "Domain fronting splice соединения",
 	})
+	s.fakeTLSRejected = prometheus.NewCounter(prometheus.CounterOpts{
+		Name: "phantom_fake_tls_rejected_total",
+		Help: "Отклонённые Fake TLS handshake",
+	})
+	s.probeRequests = prometheus.NewCounter(prometheus.CounterOpts{
+		Name: "phantom_probe_requests_total",
+		Help: "Невалидные HTTP/TLS зонды (fallback/honeypot)",
+	})
+	s.probeBlacklisted = prometheus.NewCounter(prometheus.CounterOpts{
+		Name: "phantom_probe_blacklisted_total",
+		Help: "Соединения, отклонённые probe blacklist",
+	})
 
 	reg.MustRegister(
 		s.activeConns, s.totalConns, s.uploadBytes, s.downloadBytes,
-		s.replayAttacks, s.frontingConns,
+		s.replayAttacks, s.frontingConns, s.fakeTLSRejected, s.probeRequests, s.probeBlacklisted,
 	)
 
 	mux := http.NewServeMux()
@@ -78,6 +93,15 @@ func (s *Server) ReplayAttacks() prometheus.Counter { return s.replayAttacks }
 
 // FrontingConns возвращает counter для fronting.
 func (s *Server) FrontingConns() prometheus.Counter { return s.frontingConns }
+
+// FakeTLSRejected возвращает counter отклонённых Fake TLS.
+func (s *Server) FakeTLSRejected() prometheus.Counter { return s.fakeTLSRejected }
+
+// ProbeRequests возвращает counter зондирования.
+func (s *Server) ProbeRequests() prometheus.Counter { return s.probeRequests }
+
+// ProbeBlacklisted возвращает counter заблокированных probe IP.
+func (s *Server) ProbeBlacklisted() prometheus.Counter { return s.probeBlacklisted }
 
 // Sync обновляет gauge/counter из stats tracker.
 func (s *Server) Sync() {

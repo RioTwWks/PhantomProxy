@@ -63,7 +63,16 @@ func (p RecordPolicy) chunkSize(remaining int) int {
 
 // BuildClientHello создаёт валидный Fake TLS ClientHello для тестов и клиентов.
 func BuildClientHello(secret mtproto.Secret) (*ClientHello, error) {
-	record, err := generateClientHelloRecord(secret.Host, secret.Key[:])
+	return BuildClientHelloWithRotator(secret, nil)
+}
+
+// BuildClientHelloWithRotator создаёт ClientHello с выбранным отпечатком из ротатора.
+func BuildClientHelloWithRotator(secret mtproto.Secret, rotator *FingerprintRotator) (*ClientHello, error) {
+	helloID := utls.HelloChrome_Auto
+	if rotator != nil {
+		helloID = rotator.Pick()
+	}
+	record, err := generateClientHelloRecord(secret.Host, secret.Key[:], helloID)
 	if err != nil {
 		return nil, err
 	}
@@ -101,7 +110,12 @@ func ValidateClientHello(ch *ClientHello, secret []byte, hostname string) error 
 
 // WriteClientHello отправляет Fake TLS ClientHello в соединение.
 func WriteClientHello(conn io.Writer, secret mtproto.Secret) (*ClientHello, error) {
-	ch, err := BuildClientHello(secret)
+	return WriteClientHelloWithRotator(conn, secret, nil)
+}
+
+// WriteClientHelloWithRotator отправляет ClientHello с отпечатком из ротатора.
+func WriteClientHelloWithRotator(conn io.Writer, secret mtproto.Secret, rotator *FingerprintRotator) (*ClientHello, error) {
+	ch, err := BuildClientHelloWithRotator(secret, rotator)
 	if err != nil {
 		return nil, err
 	}
@@ -136,12 +150,15 @@ func ReadServerHandshake(conn io.Reader) error {
 	return nil
 }
 
-func generateClientHelloRecord(domain string, secret []byte) ([]byte, error) {
+func generateClientHelloRecord(domain string, secret []byte, helloID utls.ClientHelloID) ([]byte, error) {
+	if helloID == (utls.ClientHelloID{}) {
+		helloID = utls.HelloChrome_Auto
+	}
 	cfg := &utls.Config{
 		ServerName: domain,
 		Rand:       rand.Reader,
 	}
-	uconn := utls.UClient(nil, cfg, utls.HelloChrome_Auto)
+	uconn := utls.UClient(nil, cfg, helloID)
 	if err := uconn.BuildHandshakeState(); err != nil {
 		return nil, fmt.Errorf("сборка ClientHello: %w", err)
 	}

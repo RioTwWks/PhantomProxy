@@ -8,25 +8,29 @@ import (
 	"github.com/RioTwWks/PhantomProxy/internal/config"
 	"github.com/RioTwWks/PhantomProxy/internal/faketls"
 	"github.com/RioTwWks/PhantomProxy/internal/limit"
+	"github.com/RioTwWks/PhantomProxy/internal/probe"
 	"github.com/RioTwWks/PhantomProxy/internal/stats"
 	"github.com/RioTwWks/PhantomProxy/internal/user"
 )
 
 // Runtime — общее состояние прокси и API управления.
 type Runtime struct {
-	mu         sync.RWMutex
-	ConfigPath string
-	Config     config.Config
-	Users      *user.Manager
-	Stats      *stats.Tracker
-	Replay     *faketls.ReplayCache
-	Limiter    *limit.ConnLimiter
-	StartedAt  time.Time
+	mu                 sync.RWMutex
+	ConfigPath         string
+	Config             config.Config
+	Users              *user.Manager
+	Stats              *stats.Tracker
+	Replay             *faketls.ReplayCache
+	Limiter            *limit.ConnLimiter
+	FingerprintRotator *faketls.FingerprintRotator
+	SNIRotator         *faketls.SNIRotator
+	ProbeBlacklist     *probe.Blacklist
+	StartedAt          time.Time
 }
 
 // New создаёт runtime.
 func New(configPath string, cfg config.Config, users *user.Manager, tracker *stats.Tracker) *Runtime {
-	return &Runtime{
+	rt := &Runtime{
 		ConfigPath: configPath,
 		Config:     cfg,
 		Users:      users,
@@ -35,6 +39,31 @@ func New(configPath string, cfg config.Config, users *user.Manager, tracker *sta
 		Limiter:    limit.NewConnLimiter(cfg.Security.MaxConnectionsPerIP),
 		StartedAt:  time.Now(),
 	}
+	rt.applySecurityFeatures(cfg)
+	return rt
+}
+
+func (r *Runtime) applySecurityFeatures(cfg config.Config) {
+	fp, err := faketls.NewFingerprintRotator(
+		cfg.TLS.FingerprintPool,
+		cfg.TLS.FingerprintRotation,
+		cfg.TLS.FingerprintRotationInterval,
+		cfg.TLS.FingerprintAdaptiveThreshold,
+	)
+	if err != nil {
+		fp, _ = faketls.NewFingerprintRotator(nil, faketls.RotationPerConnection, 300, 20)
+	}
+	r.FingerprintRotator = fp
+	r.SNIRotator = faketls.NewSNIRotator(cfg.TLS.SNIPool, cfg.TLS.SNIRotation, cfg.TLS.SNIRotationInterval)
+	r.ProbeBlacklist = probe.NewBlacklist(cfg.Security.ProbeBlacklistThreshold, cfg.Security.ProbeBlacklistDurationSec)
+}
+
+// PickMaskSNI возвращает SNI для fronting/fallback с учётом пула.
+func (r *Runtime) PickMaskSNI(fallback string) string {
+	if r.SNIRotator != nil {
+		return r.SNIRotator.Pick(fallback)
+	}
+	return fallback
 }
 
 // Snapshot возвращает копию конфигурации.
@@ -64,6 +93,7 @@ func (r *Runtime) Reload() error {
 	r.UpdateConfig(cfg)
 	r.Limiter = limit.NewConnLimiter(cfg.Security.MaxConnectionsPerIP)
 	r.Replay = faketls.NewReplayCache(cfg.AntireplayMaxEntries(), 2*time.Minute)
+	r.applySecurityFeatures(cfg)
 	return nil
 }
 
@@ -81,12 +111,14 @@ func (r *Runtime) UpdateSettings(settings config.SettingsView) error {
 
 	if r.ConfigPath == "" {
 		r.Config = cfg
+		r.applySecurityFeatures(cfg)
 		return nil
 	}
 	if err := config.Save(r.ConfigPath, cfg); err != nil {
 		return err
 	}
 	r.Config = cfg
+	r.applySecurityFeatures(cfg)
 	return nil
 }
 

@@ -9,11 +9,13 @@ import (
 	"sync"
 	"time"
 
+	"github.com/RioTwWks/PhantomProxy/internal/config"
 	"github.com/RioTwWks/PhantomProxy/internal/faketls"
 	"github.com/RioTwWks/PhantomProxy/internal/fallback"
 	"github.com/RioTwWks/PhantomProxy/internal/metrics"
 	"github.com/RioTwWks/PhantomProxy/internal/middleproxy"
 	"github.com/RioTwWks/PhantomProxy/internal/obfuscated2"
+	"github.com/RioTwWks/PhantomProxy/internal/probe"
 	"github.com/RioTwWks/PhantomProxy/internal/runtime"
 	"github.com/RioTwWks/PhantomProxy/internal/telegram"
 	"github.com/RioTwWks/PhantomProxy/internal/upstream"
@@ -130,6 +132,14 @@ func (s *Server) handleConnection(ctx context.Context, conn net.Conn) {
 	cfg := s.rt.Snapshot()
 	remote := remoteAddr(conn)
 
+	if s.rt.ProbeBlacklist != nil && s.rt.ProbeBlacklist.IsBlocked(probe.ClientIP(conn)) {
+		slog.Debug("IP в probe blacklist", "remote", remote)
+		if s.metrics != nil {
+			s.metrics.ProbeBlacklisted().Inc()
+		}
+		return
+	}
+
 	if err := conn.SetReadDeadline(time.Now().Add(cfg.HandshakeTimeout())); err != nil {
 		return
 	}
@@ -157,7 +167,11 @@ func (s *Server) handleConnection(ctx context.Context, conn net.Conn) {
 	}
 
 	slog.Debug("постороннее соединение", "remote", remote, "byte", fmt.Sprintf("0x%02x", first[0]))
-	_ = fallback.Serve(&faketls.PrefixConn{Conn: conn, Prefix: first}, cfg.Fallback.Upstream)
+	s.recordProbe(conn)
+	if s.metrics != nil {
+		s.metrics.ProbeRequests().Inc()
+	}
+	_ = fallback.Serve(&faketls.PrefixConn{Conn: conn, Prefix: first}, s.fallbackOpts(cfg))
 }
 
 func (s *Server) handleFakeTLSPath(ctx context.Context, rec *faketls.ReadRecorder, remote string) {
@@ -198,13 +212,24 @@ func (s *Server) handleFakeTLSPath(ctx context.Context, rec *faketls.ReadRecorde
 
 	if err != nil {
 		slog.Debug("fake TLS отклонён", "remote", remote, "err", err)
+		if s.rt.FingerprintRotator != nil {
+			s.rt.FingerprintRotator.RecordFailure()
+		}
+		if s.metrics != nil {
+			s.metrics.FakeTLSRejected().Inc()
+		}
+		s.recordProbe(rec)
 		s.handleRejectedTLS(rec, ch, remote)
+		return
+	}
+	if s.rt.FingerprintRotator != nil {
+		s.rt.FingerprintRotator.RecordSuccess()
 	}
 }
 
 func (s *Server) handleRejectedTLS(conn *faketls.ReadRecorder, ch *faketls.ClientHello, remote string) {
 	cfg := s.rt.Snapshot()
-	host := s.rt.Users.MaskHost()
+	host := s.rt.PickMaskSNI(s.rt.Users.MaskHost())
 	if ch != nil {
 		if sni := ch.SNI(); sni != "" {
 			host = sni
@@ -222,9 +247,28 @@ func (s *Server) handleRejectedTLS(conn *faketls.ReadRecorder, ch *faketls.Clien
 			slog.Debug("splice", "remote", remote, "host", host, "err", err)
 		}
 	case "fallback":
-		_ = fallback.Serve(conn, cfg.Fallback.Upstream)
+		if s.metrics != nil {
+			s.metrics.ProbeRequests().Inc()
+		}
+		_ = fallback.Serve(conn, s.fallbackOpts(cfg))
 	default:
 		_ = faketls.RedirectToDomain(conn, host)
+	}
+}
+
+func (s *Server) fallbackOpts(cfg config.Config) fallback.Options {
+	return fallback.Options{
+		Upstream: cfg.Fallback.Upstream,
+		Honeypot: cfg.Fallback.Honeypot,
+	}
+}
+
+func (s *Server) recordProbe(conn net.Conn) {
+	if s.rt.ProbeBlacklist == nil {
+		return
+	}
+	if s.rt.ProbeBlacklist.RecordProbe(probe.ClientIP(conn)) && s.metrics != nil {
+		s.metrics.ProbeBlacklisted().Inc()
 	}
 }
 
