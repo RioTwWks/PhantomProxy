@@ -71,35 +71,48 @@ func newCBCConn(conn net.Conn, encKey, encIV, decKey, decIV []byte) (*cbcConn, e
 }
 
 func (c *cbcConn) Write(p []byte) (int, error) {
-	pad := cbcBlockSize - (len(p) % cbcBlockSize)
-	if pad == 0 {
-		pad = cbcBlockSize
+	if len(p)%cbcBlockSize != 0 {
+		return 0, fmt.Errorf("cbc: plaintext %d не кратен %d", len(p), cbcBlockSize)
 	}
-	buf := make([]byte, len(p)+pad)
-	copy(buf, p)
-	for i := len(p); i < len(buf); i++ {
-		buf[i] = byte(pad)
-	}
-	c.enc.CryptBlocks(buf, buf)
-	_, err := c.Conn.Write(buf)
-	if err != nil {
+	out := make([]byte, len(p))
+	c.enc.CryptBlocks(out, p)
+	if _, err := c.Conn.Write(out); err != nil {
 		return 0, err
 	}
 	return len(p), nil
 }
 
+func alignedCipherReadSize(need int) int {
+	if need <= 0 {
+		return cbcBlockSize
+	}
+	if r := need % cbcBlockSize; r != 0 {
+		return need + (cbcBlockSize - r)
+	}
+	return need
+}
+
+func (c *cbcConn) ensurePlain(n int) error {
+	for len(c.buf) < n {
+		need := n - len(c.buf)
+		cipherLen := alignedCipherReadSize(need)
+		ciphertext := make([]byte, cipherLen)
+		if _, err := readFull(c.Conn, ciphertext); err != nil {
+			return err
+		}
+		plaintext := make([]byte, cipherLen)
+		c.dec.CryptBlocks(plaintext, ciphertext)
+		c.buf = append(c.buf, plaintext...)
+	}
+	return nil
+}
+
 func (c *cbcConn) Read(p []byte) (int, error) {
-	for len(c.buf) == 0 {
-		block := make([]byte, cbcBlockSize)
-		if _, err := readFull(c.Conn, block); err != nil {
-			return 0, err
-		}
-		c.dec.CryptBlocks(block, block)
-		pad := int(block[len(block)-1])
-		if pad <= 0 || pad > cbcBlockSize {
-			return 0, fmt.Errorf("неверный CBC padding")
-		}
-		c.buf = append(c.buf[:0], block[:len(block)-pad]...)
+	if len(p) == 0 {
+		return 0, nil
+	}
+	if err := c.ensurePlain(len(p)); err != nil {
+		return 0, err
 	}
 	n := copy(p, c.buf)
 	c.buf = c.buf[n:]
@@ -141,47 +154,43 @@ func writeFrame(w io.Writer, seqNo int32, msg []byte) error {
 }
 
 func readFrame(r io.Reader, seqNo *int32) ([]byte, error) {
-	lenBytes := make([]byte, 4)
-	if _, err := readFull(r, lenBytes); err != nil {
-		return nil, err
-	}
-	msgLen := int32(binary.LittleEndian.Uint32(lenBytes))
-
-	seqBytes := make([]byte, 4)
-	if _, err := readFull(r, seqBytes); err != nil {
-		return nil, err
-	}
-	gotSeq := int32(binary.LittleEndian.Uint32(seqBytes))
-	if *seqNo != gotSeq {
-		return nil, fmt.Errorf("unexpected seq_no: got %d want %d", gotSeq, *seqNo)
-	}
-	*seqNo++
-
-	dataLen := int(msgLen) - 12
-	if dataLen < 0 {
-		return nil, fmt.Errorf("bad frame len %d", msgLen)
-	}
-	data := make([]byte, dataLen)
-	if _, err := readFull(r, data); err != nil {
-		return nil, err
-	}
-
-	checksum := make([]byte, 4)
-	if _, err := readFull(r, checksum); err != nil {
-		return nil, err
-	}
-
-	// padding до кратности 16
-	used := 4 + 4 + dataLen + 4
-	padLen := cbcBlockSize - (used % cbcBlockSize)
-	if padLen < cbcBlockSize {
-		skip := make([]byte, padLen)
-		if _, err := readFull(r, skip); err != nil {
+	for {
+		lenBytes := make([]byte, 4)
+		if _, err := readFull(r, lenBytes); err != nil {
 			return nil, err
 		}
-	}
+		msgLen := int32(binary.LittleEndian.Uint32(lenBytes))
+		if msgLen == 4 {
+			continue
+		}
 
-	return data, nil
+		seqBytes := make([]byte, 4)
+		if _, err := readFull(r, seqBytes); err != nil {
+			return nil, err
+		}
+		gotSeq := int32(binary.LittleEndian.Uint32(seqBytes))
+		if *seqNo != gotSeq {
+			return nil, fmt.Errorf("unexpected seq_no: got %d want %d", gotSeq, *seqNo)
+		}
+		*seqNo++
+
+		dataLen := int(msgLen) - 12
+		if dataLen < 0 {
+			return nil, fmt.Errorf("bad frame len %d", msgLen)
+		}
+		data := make([]byte, dataLen)
+		if _, err := readFull(r, data); err != nil {
+			return nil, err
+		}
+
+		checksum := make([]byte, 4)
+		if _, err := readFull(r, checksum); err != nil {
+			return nil, err
+		}
+
+		// Padding после checksum только при отправке (writeFrame), ответ ME — ровно msgLen байт.
+		return data, nil
+	}
 }
 
 func framePadding(n int) []byte {
