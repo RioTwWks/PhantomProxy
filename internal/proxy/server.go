@@ -107,6 +107,7 @@ func (s *Server) Serve(ctx context.Context) error {
 			if s.rt.Limiter != nil {
 				defer s.rt.Limiter.Release(c)
 			}
+			slog.Info("входящее соединение", "remote", remoteAddr(c))
 			s.handleConnection(ctx, c)
 		}(conn)
 	}
@@ -153,6 +154,7 @@ func (s *Server) handleConnection(ctx context.Context, conn net.Conn) {
 
 	first := make([]byte, 1)
 	if _, err := conn.Read(first); err != nil {
+		slog.Debug("соединение закрыто до первого байта", "remote", remote, "err", err)
 		return
 	}
 
@@ -229,7 +231,7 @@ func (s *Server) handleFakeTLSPath(ctx context.Context, rec *faketls.ReadRecorde
 	}()
 
 	if err != nil {
-		slog.Debug("fake TLS отклонён", "remote", remote, "err", err)
+		slog.Warn("fake TLS отклонён", "remote", remote, "err", err)
 		s.onHandshakeFailure(err)
 		s.recordProbe(rec)
 		s.handleRejectedTLS(rec, ch, remote)

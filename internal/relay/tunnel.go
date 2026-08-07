@@ -11,6 +11,7 @@ import (
 	"errors"
 	"fmt"
 	"io"
+	"log/slog"
 	"net"
 	"time"
 )
@@ -90,10 +91,14 @@ func ServeBack(ctx context.Context, ln net.Listener, psk []byte, handler func(ct
 		}
 		go func(c net.Conn) {
 			defer c.Close()
+			remote := c.RemoteAddr().String()
+			slog.Info("relay back: входящее соединение", "remote", remote)
 			dcID, framed, err := acceptBack(c, psk)
 			if err != nil {
+				slog.Warn("relay back: handshake отклонён", "remote", remote, "err", err)
 				return
 			}
+			slog.Info("relay back: handshake ok", "remote", remote, "dc", dcID)
 			_ = handler(ctx, dcID, framed)
 		}(conn)
 	}

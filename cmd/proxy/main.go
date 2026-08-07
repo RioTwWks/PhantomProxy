@@ -7,6 +7,7 @@ import (
 	"log/slog"
 	"os"
 	"os/signal"
+	"strings"
 	"syscall"
 	"time"
 
@@ -52,13 +53,30 @@ func main() {
 
 type runFlags struct {
 	configPath string
+	logLevel   string
 }
 
 func parseRunFlags(args []string) runFlags {
 	fs := flag.NewFlagSet("run", flag.ExitOnError)
 	cfg := fs.String("config", "configs/config.yaml", "путь к конфигурации")
+	logLevel := fs.String("log-level", "info", "уровень логов: debug, info, warn, error")
 	_ = fs.Parse(args)
-	return runFlags{configPath: *cfg}
+	return runFlags{configPath: *cfg, logLevel: *logLevel}
+}
+
+func setupLogging(level string) {
+	var lvl slog.Level
+	switch strings.ToLower(strings.TrimSpace(level)) {
+	case "debug":
+		lvl = slog.LevelDebug
+	case "warn", "warning":
+		lvl = slog.LevelWarn
+	case "error":
+		lvl = slog.LevelError
+	default:
+		lvl = slog.LevelInfo
+	}
+	slog.SetDefault(slog.New(slog.NewTextHandler(os.Stderr, &slog.HandlerOptions{Level: lvl})))
 }
 
 func legacyRun(args []string) {
@@ -72,7 +90,7 @@ func printUsage() {
 	fmt.Println(`PhantomProxy — Fake TLS MTProto-прокси
 
 Использование:
-  telegram-proxy run [-config path]   Запустить прокси
+  telegram-proxy run [-config path] [-log-level debug|info]   Запустить прокси
   telegram-proxy generate <host>      Сгенерировать ee/dd секреты
   telegram-proxy uninstall [--purge]  Удалить systemd-сервис
   telegram-proxy version              Версия
@@ -134,6 +152,8 @@ func cmdUninstall(args []string) {
 }
 
 func runServer(flags runFlags) {
+	setupLogging(flags.logLevel)
+
 	cfg, users, err := config.Load(flags.configPath)
 	if err != nil {
 		slog.Error("ошибка загрузки конфигурации", "err", err)
