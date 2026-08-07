@@ -34,7 +34,7 @@ func (c RelayConfig) ListenAddr() string {
 	}
 	port := c.ListenPort
 	if port <= 0 {
-		port = 9443
+		port = 15443
 	}
 	return fmt.Sprintf("%s:%d", host, port)
 }

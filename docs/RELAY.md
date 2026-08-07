@@ -5,7 +5,7 @@
 ## Схема
 
 ```
-Telegram (MTProto) → Front RU :443 → relay PHRP/AES-GCM → Back EU :9443 → Middle Proxy / DC
+Telegram (MTProto) → Front RU :15443 → relay PHRP/AES-GCM → Back EU :15443 → Middle Proxy / DC
 ```
 
 ## Быстрый старт
@@ -21,16 +21,16 @@ openssl rand -hex 32
 ### 2. EU Back
 
 ```bash
-# configs/config.eu.yaml — relay.mode: back, relay.listen_port: 9443
+# configs/config.eu.yaml — relay.mode: back, relay.listen_port: 15443
 # middle_proxy_nat_ip: публичный IPv4 EU-сервера
 make build
 ./telegram-proxy run -config configs/config.eu.yaml
 ```
 
-Открой порт **9443** только для IP RU Front (firewall):
+Открой порт **15443** только для IP RU Front (firewall):
 
 ```bash
-ufw allow from RU_FRONT_IP to any port 9443 proto tcp
+ufw allow from RU_FRONT_IP to any port 15443 proto tcp
 ```
 
 ### 3. RU Front
@@ -40,19 +40,19 @@ ufw allow from RU_FRONT_IP to any port 9443 proto tcp
 ./telegram-proxy generate microsoft.com
 
 # Вставь secret в configs/config.ru.yaml
-# relay.peer_addr: "EU_SERVER_IP:9443"
+# relay.peer_addr: "EU_SERVER_IP:15443"
 ./telegram-proxy run -config configs/config.ru.yaml
 ```
 
-В Telegram: **Настройки → Прокси → MTProto** — IP RU Front, порт 443, секрет `ee...`.
+В Telegram: **Настройки → Прокси → MTProto** — IP RU Front, порт **15443**, секрет `ee...`.
 
 ## Конфигурация relay
 
 | Поле | Front (RU) | Back (EU) |
 |------|------------|-----------|
 | `relay.mode` | `front` | `back` |
-| `relay.peer_addr` | `EU_IP:9443` | — |
-| `relay.listen_port` | — | `9443` |
+| `relay.peer_addr` | `EU_IP:15443` | — |
+| `relay.listen_port` | — | `15443` |
 | `relay.psk` | hex 32+ байт | тот же |
 
 ## Протокол PHRP
