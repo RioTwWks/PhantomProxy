@@ -418,6 +418,7 @@ func (s *Server) relayBackToDC(ctx context.Context, dcID int, stream net.Conn, u
 	cfg := s.rt.Snapshot()
 	dcConn, err := s.dialDC(ctx, cfg, dcID, "")
 	if err != nil {
+		slog.Warn("relay back: не удалось подключиться к DC", "dc", dcID, "middle_proxy", cfg.MTProto.UseMiddleProxy, "err", err)
 		return err
 	}
 	defer dcConn.Close()

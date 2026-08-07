@@ -101,4 +101,29 @@ nc -zv 212.192.215.248 15443
 
 На EU должен быть открыт **15443 только с IP RU** (`37.9.4.136`). В логах EU: `relay back: входящее соединение`.
 
+### RU подключает клиента, EU только `handshake ok`, нет `relay back подключён`
+
+Цепочка RU→EU работает, но EU **не выходит в Telegram DC**. На RU: `upload>0 download=0`.
+
+1. На EU включи debug и смотри ошибку (с версии с логированием):
+   ```
+   relay back: не удалось подключиться к DC ... err=...
+   ```
+2. **Проверь исходящий доступ с EU** к middle proxy Telegram:
+   ```bash
+   nc -zv 149.154.161.144 8888   # DC2
+   ```
+3. **`middle_proxy_nat_ip`** — публичный IPv4 EU-сервера (`212.192.215.248`), не RU. Должен совпадать с IP, с которого EU ходит в интернет.
+4. **`ad_tag`** — получи у @MTProxybot и раскомментируй в `config.eu.yaml`.
+5. **Быстрый тест без ME** — временно на EU:
+   ```yaml
+   mtproto:
+     use_middle_proxy: false
+   ```
+   Перезапусти EU. Если появится `relay back подключён` — проблема в middle proxy / firewall :8888.
+
+### Probe blacklist на RU
+
+После серии неудач IP клиента блокируется (`IP в probe blacklist`). **Перезапусти** `./telegram-proxy` или подними `probe_blacklist_threshold` на время отладки.
+
 Полезные метрики: `curl -s http://127.0.0.1:9090/metrics | grep phantom_`

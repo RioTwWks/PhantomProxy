@@ -99,7 +99,9 @@ func ServeBack(ctx context.Context, ln net.Listener, psk []byte, handler func(ct
 				return
 			}
 			slog.Info("relay back: handshake ok", "remote", remote, "dc", dcID)
-			_ = handler(ctx, dcID, framed)
+			if err := handler(ctx, dcID, framed); err != nil {
+				slog.Warn("relay back: сессия завершена с ошибкой", "remote", remote, "dc", dcID, "err", err)
+			}
 		}(conn)
 	}
 }
