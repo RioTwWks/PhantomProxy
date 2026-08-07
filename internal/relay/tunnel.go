@@ -127,7 +127,7 @@ func ServeBack(ctx context.Context, ln net.Listener, psk []byte, handler func(ct
 }
 
 func acceptBack(conn net.Conn, psk []byte) (int, net.Conn, Meta, error) {
-	hdr := make([]byte, handshakeLen)
+	hdr := make([]byte, handshakeBaseLen)
 	if _, err := io.ReadFull(conn, hdr); err != nil {
 		return 0, nil, Meta{}, err
 	}
@@ -143,10 +143,15 @@ func acceptBack(conn net.Conn, psk []byte) (int, net.Conn, Meta, error) {
 		return 0, nil, Meta{}, errBadAuth
 	}
 	dcID := int(binary.BigEndian.Uint16(hdr[52:54]))
-	meta := Meta{
-		ClientIP:   net.IP(hdr[54:58]).String(),
-		ClientPort: int(binary.BigEndian.Uint16(hdr[58:60])),
+
+	meta := Meta{}
+	_ = conn.SetReadDeadline(time.Now().Add(200 * time.Millisecond))
+	extra := make([]byte, handshakeLen-handshakeBaseLen)
+	if n, err := io.ReadFull(conn, extra); err == nil && n == len(extra) {
+		meta.ClientIP = net.IP(extra[:4]).String()
+		meta.ClientPort = int(binary.BigEndian.Uint16(extra[4:6]))
 	}
+	_ = conn.SetReadDeadline(time.Time{})
 
 	aead, err := newAEAD(psk, nonce)
 	if err != nil {

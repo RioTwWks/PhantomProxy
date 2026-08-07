@@ -143,7 +143,7 @@ func (s *Server) handleConnection(ctx context.Context, conn net.Conn) {
 	remote := remoteAddr(conn)
 
 	if s.rt.ProbeBlacklist != nil && s.rt.ProbeBlacklist.IsBlocked(probe.ClientIP(conn)) {
-		slog.Debug("IP в probe blacklist", "remote", remote)
+		slog.Warn("соединение отклонено: IP в probe blacklist", "remote", remote)
 		if s.metrics != nil {
 			s.metrics.ProbeBlacklisted().Inc()
 		}
@@ -233,7 +233,11 @@ func (s *Server) handleFakeTLSPath(ctx context.Context, rec *faketls.ReadRecorde
 	}()
 
 	if err != nil {
-		slog.Warn("fake TLS отклонён", "remote", remote, "err", err)
+		if strings.Contains(err.Error(), "relay front:") || strings.Contains(err.Error(), "relay dial:") {
+			slog.Warn("relay front ошибка", "remote", remote, "err", err)
+		} else {
+			slog.Warn("fake TLS отклонён", "remote", remote, "err", err)
+		}
 		s.onHandshakeFailure(err)
 		s.recordProbe(rec)
 		s.handleRejectedTLS(rec, ch, remote)
