@@ -29,6 +29,8 @@ type Server struct {
 	fakeTLSRejected    prometheus.Counter
 	probeRequests      prometheus.Counter
 	probeBlacklisted   prometheus.Counter
+	tlsRejectReasons   *prometheus.CounterVec
+	decoyRecords       prometheus.Counter
 }
 
 // New создаёт metrics server.
@@ -72,10 +74,19 @@ func New(rt *runtime.Runtime, cfg config.MetricsConfig) *Server {
 		Name: "phantom_probe_blacklisted_total",
 		Help: "Соединения, отклонённые probe blacklist",
 	})
+	s.tlsRejectReasons = prometheus.NewCounterVec(prometheus.CounterOpts{
+		Name: "phantom_tls_reject_reason_total",
+		Help: "Отклонённые handshake по причине",
+	}, []string{"reason"})
+	s.decoyRecords = prometheus.NewCounter(prometheus.CounterOpts{
+		Name: "phantom_decoy_records_total",
+		Help: "Отправленные decoy TLS-записи",
+	})
 
 	reg.MustRegister(
 		s.activeConns, s.totalConns, s.uploadBytes, s.downloadBytes,
 		s.replayAttacks, s.frontingConns, s.fakeTLSRejected, s.probeRequests, s.probeBlacklisted,
+		s.tlsRejectReasons, s.decoyRecords,
 	)
 
 	mux := http.NewServeMux()
@@ -102,6 +113,16 @@ func (s *Server) ProbeRequests() prometheus.Counter { return s.probeRequests }
 
 // ProbeBlacklisted возвращает counter заблокированных probe IP.
 func (s *Server) ProbeBlacklisted() prometheus.Counter { return s.probeBlacklisted }
+
+// RecordTLSReject увеличивает счётчик отклонения по причине.
+func (s *Server) RecordTLSReject(reason string) {
+	if s != nil && s.tlsRejectReasons != nil {
+		s.tlsRejectReasons.WithLabelValues(reason).Inc()
+	}
+}
+
+// DecoyRecords возвращает counter decoy-записей.
+func (s *Server) DecoyRecords() prometheus.Counter { return s.decoyRecords }
 
 // Sync обновляет gauge/counter из stats tracker.
 func (s *Server) Sync() {

@@ -74,6 +74,14 @@ func serveHoneypot(client net.Conn) error {
 		return serveStatic(client, honeypotPage())
 	}
 
+	path := req.URL.Path
+	if path == "/favicon.ico" {
+		return writeStatus(client, http.StatusNoContent, "No Content")
+	}
+	if strings.HasPrefix(path, "/.well-known/") {
+		return writeStatus(client, http.StatusNotFound, "Not Found")
+	}
+
 	switch req.Method {
 	case http.MethodGet, http.MethodHead:
 		page := honeypotPage()
@@ -81,6 +89,8 @@ func serveHoneypot(client net.Conn) error {
 			return writeHead(client, page)
 		}
 		return serveStatic(client, page)
+	case http.MethodPost:
+		return writeStatus(client, http.StatusMethodNotAllowed, "Method Not Allowed")
 	default:
 		return writeStatus(client, http.StatusMethodNotAllowed, "Method Not Allowed")
 	}

@@ -23,6 +23,7 @@ type Config struct {
 	Protocols  ProtocolsConfig  `mapstructure:"protocols" yaml:"protocols"`
 	Upstream   UpstreamConfig   `mapstructure:"upstream" yaml:"upstream"`
 	Metrics    MetricsConfig    `mapstructure:"metrics" yaml:"metrics"`
+	Relay      RelayConfig      `mapstructure:"relay" yaml:"relay"`
 }
 
 // FrontingConfig — domain fronting при отклонённом Fake TLS.
@@ -39,6 +40,7 @@ type SecurityConfig struct {
 	HandshakeTimeoutSec       int `mapstructure:"handshake_timeout_sec" yaml:"handshake_timeout_sec"`
 	ProbeBlacklistThreshold   int `mapstructure:"probe_blacklist_threshold" yaml:"probe_blacklist_threshold"`
 	ProbeBlacklistDurationSec int `mapstructure:"probe_blacklist_duration_sec" yaml:"probe_blacklist_duration_sec"`
+	ProbeBlacklistWindowSec   int `mapstructure:"probe_blacklist_window_sec" yaml:"probe_blacklist_window_sec"`
 }
 
 // ProtocolsConfig — поддерживаемые режимы MTProto.
@@ -138,6 +140,14 @@ type TLSConfig struct {
 	SNIPool                      []string `mapstructure:"sni_pool" yaml:"sni_pool,omitempty"`
 	SNIRotation                  string   `mapstructure:"sni_rotation" yaml:"sni_rotation,omitempty"`
 	SNIRotationInterval          int      `mapstructure:"sni_rotation_interval_sec" yaml:"sni_rotation_interval_sec,omitempty"`
+	ServerHelloPool              []string `mapstructure:"server_hello_pool" yaml:"server_hello_pool,omitempty"`
+	ServerHelloRotation          string   `mapstructure:"server_hello_rotation" yaml:"server_hello_rotation,omitempty"`
+	ServerHelloRotationInterval  int      `mapstructure:"server_hello_rotation_interval_sec" yaml:"server_hello_rotation_interval_sec,omitempty"`
+	ServerHelloAdaptiveThreshold int      `mapstructure:"server_hello_adaptive_threshold" yaml:"server_hello_adaptive_threshold,omitempty"`
+	RecordJitterMs               int      `mapstructure:"record_jitter_ms" yaml:"record_jitter_ms,omitempty"`
+	DecoyPermille                int      `mapstructure:"decoy_permille" yaml:"decoy_permille,omitempty"`
+	PostHandshakeDelayMs         int      `mapstructure:"post_handshake_delay_ms" yaml:"post_handshake_delay_ms,omitempty"`
+	ClientHelloPolicy            string   `mapstructure:"client_hello_policy" yaml:"client_hello_policy,omitempty"`
 }
 
 // FallbackConfig — сайт-заглушка для посторонних соединений.
@@ -191,7 +201,17 @@ func (c Config) RecordPolicy() faketls.RecordPolicy {
 		MaxChunk:       c.TLS.RecordMaxChunk,
 		EnableDRS:      c.TLS.EnableDRS,
 		EnableSplitTLS: c.TLS.EnableSplitTLS,
+		RecordJitterMs: c.TLS.RecordJitterMs,
+		DecoyPermille:  c.TLS.DecoyPermille,
 	}.Normalize()
+}
+
+// PostHandshakeDelay возвращает задержку после ServerHello.
+func (c Config) PostHandshakeDelay() time.Duration {
+	if c.TLS.PostHandshakeDelayMs <= 0 {
+		return 0
+	}
+	return time.Duration(c.TLS.PostHandshakeDelayMs) * time.Millisecond
 }
 
 // NoiseParams возвращает параметры padding ServerHello.
@@ -261,6 +281,12 @@ func loadFile(path string) (Config, error) {
 	v.SetDefault("tls.fingerprint_adaptive_threshold", 20)
 	v.SetDefault("tls.sni_rotation", "per_connection")
 	v.SetDefault("tls.sni_rotation_interval_sec", 300)
+	v.SetDefault("tls.server_hello_rotation", "per_connection")
+	v.SetDefault("tls.server_hello_rotation_interval_sec", 300)
+	v.SetDefault("tls.server_hello_adaptive_threshold", 20)
+	v.SetDefault("tls.client_hello_policy", "log")
+	v.SetDefault("relay.mode", "off")
+	v.SetDefault("relay.listen_port", 9443)
 	v.SetDefault("management.host", "127.0.0.1")
 	v.SetDefault("management.port", 8081)
 	v.SetDefault("management.service_name", "phantom-proxy")
@@ -272,6 +298,7 @@ func loadFile(path string) (Config, error) {
 	v.SetDefault("security.handshake_timeout_sec", 10)
 	v.SetDefault("security.probe_blacklist_threshold", 0)
 	v.SetDefault("security.probe_blacklist_duration_sec", 3600)
+	v.SetDefault("security.probe_blacklist_window_sec", 600)
 	v.SetDefault("fallback.honeypot", false)
 	v.SetDefault("protocols.fake_tls", true)
 	v.SetDefault("protocols.secure", true)

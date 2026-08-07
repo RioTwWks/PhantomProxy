@@ -3,7 +3,6 @@ package faketls
 import (
 	"bytes"
 	"crypto/hmac"
-	"crypto/rand"
 	"crypto/sha256"
 	"crypto/subtle"
 	"encoding/binary"
@@ -228,44 +227,7 @@ func validateClientHello(ch *ClientHello, secret []byte) error {
 
 // WriteServerHello отправляет синтетический TLS ServerHello + CCS + ApplicationData.
 func WriteServerHello(conn net.Conn, ch *ClientHello, secret []byte) error {
-	return WriteServerHelloWithNoise(conn, ch, secret, NoiseParams{})
-}
-
-func buildServerHello(ch *ClientHello) []byte {
-	var hello bytes.Buffer
-
-	hello.WriteByte(0x02)
-	hello.Write([]byte{0, 0, 0})
-	hello.Write([]byte{0x03, 0x03})
-
-	serverRandom := make([]byte, 32)
-	_, _ = rand.Read(serverRandom)
-	hello.Write(serverRandom)
-
-	hello.WriteByte(byte(len(ch.SessionID)))
-	hello.Write(ch.SessionID)
-	binary.Write(&hello, binary.BigEndian, ch.CipherSuite) //nolint:errcheck
-	hello.WriteByte(0x00)
-
-	var ext bytes.Buffer
-	ext.Write([]byte{0x00, 0x2b, 0x00, 0x02, 0x03, 0x04})
-
-	pubKey := make([]byte, 32)
-	_, _ = rand.Read(pubKey)
-	keyShare := append([]byte{0x00, 0x1d, 0x00, 0x20}, pubKey...)
-	ext.Write([]byte{0x00, 0x33})
-	binary.Write(&ext, binary.BigEndian, uint16(len(keyShare))) //nolint:errcheck
-	ext.Write(keyShare)
-
-	binary.Write(&hello, binary.BigEndian, uint16(ext.Len())) //nolint:errcheck
-	hello.Write(ext.Bytes())
-
-	result := hello.Bytes()
-	bodyLen := len(result) - 4
-	result[1] = byte(bodyLen >> 16)
-	result[2] = byte(bodyLen >> 8)
-	result[3] = byte(bodyLen)
-	return result
+	return WriteServerHelloWithNoise(conn, ch, secret, NoiseParams{}, nil)
 }
 
 func writeRecord(buf *bytes.Buffer, recType byte, payload []byte) {
