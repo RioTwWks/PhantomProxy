@@ -239,7 +239,9 @@ func (s *Server) handleFakeTLSPath(ctx context.Context, rec *faketls.ReadRecorde
 			slog.Warn("fake TLS отклонён", "remote", remote, "err", err)
 		}
 		s.onHandshakeFailure(err)
-		s.recordProbe(rec)
+		if !isIOTimeoutErr(err) {
+			s.recordProbe(rec)
+		}
 		s.handleRejectedTLS(rec, ch, remote)
 		return
 	}
@@ -411,7 +413,7 @@ func pipeTraffic(client io.ReadWriteCloser, server io.ReadWriteCloser) (upload, 
 		if err != nil && !isClosedConnErr(err) {
 			slog.Debug("pipe upload завершён с ошибкой", "bytes", n, "err", err)
 		}
-		_ = server.Close()
+		closeWriteHalf(server)
 	}()
 	go func() {
 		defer wg.Done()
@@ -420,10 +422,24 @@ func pipeTraffic(client io.ReadWriteCloser, server io.ReadWriteCloser) (upload, 
 		if err != nil && !isClosedConnErr(err) {
 			slog.Debug("pipe download завершён с ошибкой", "bytes", n, "err", err)
 		}
-		_ = client.Close()
+		closeWriteHalf(client)
 	}()
 	wg.Wait()
+	_ = client.Close()
+	_ = server.Close()
 	return upload, download
+}
+
+// closeWriteHalf закрывает только направление записи, чтобы второй поток мог дочитать ответ.
+func closeWriteHalf(c io.Closer) {
+	type halfCloser interface {
+		CloseWrite() error
+	}
+	if hc, ok := c.(halfCloser); ok {
+		_ = hc.CloseWrite()
+		return
+	}
+	_ = c.Close()
 }
 
 func isClosedConnErr(err error) bool {
@@ -436,29 +452,55 @@ func isClosedConnErr(err error) bool {
 		strings.Contains(s, "broken pipe")
 }
 
+func isIOTimeoutErr(err error) bool {
+	if err == nil {
+		return false
+	}
+	s := err.Error()
+	return strings.Contains(s, "i/o timeout") || strings.Contains(s, "timeout")
+}
+
 func (s *Server) relayBackToDC(ctx context.Context, meta relaypkg.Meta, stream net.Conn, userName string) error {
 	cfg := s.rt.Snapshot()
 	remote := formatClientRemote(meta.ClientIP, meta.ClientPort)
+	backend := relayBackendLabel(cfg, meta.DCID)
 	dcConn, err := s.dialDC(ctx, cfg, meta.DCID, remote)
 	if err != nil {
-		slog.Warn("relay back: не удалось подключиться к DC", "dc", meta.DCID, "middle_proxy", cfg.MTProto.UseMiddleProxy, "client", remote, "err", err)
+		slog.Warn("relay back: не удалось подключиться к DC", "dc", meta.DCID, "backend", backend, "client", remote, "err", err)
 		return err
 	}
 	defer dcConn.Close()
 
 	s.rt.Stats.OnConnect(userName)
 	defer s.rt.Stats.OnDisconnect(userName)
-	slog.Info("relay back подключён", "user", userName, "dc", meta.DCID, "client", remote)
+	slog.Info("relay back подключён", "user", userName, "dc", meta.DCID, "client", remote, "backend", backend)
 
 	up, down := pipeTraffic(stream, dcConn)
-	if up == 0 && down == 0 {
-		slog.Debug("relay back: сессия без трафика", "client", remote)
-	}
 	s.rt.Stats.AddTraffic(userName, up, down)
 	if s.metrics != nil {
 		s.metrics.RecordTraffic(up, down)
 	}
+	slog.Info("relay back отключён", "user", userName, "dc", meta.DCID, "client", remote, "backend", backend, "upload", up, "download", down)
 	return nil
+}
+
+func relayBackendLabel(cfg config.Config, dcID int) string {
+	adTag, err := middleproxy.ParseAdTag(cfg.MTProto.AdTag)
+	if err != nil {
+		return "unknown"
+	}
+	useMiddle := cfg.MTProto.UseMiddleProxy || len(adTag) > 0
+	if useMiddle && cfg.Upstream.SOCKS5 != "" {
+		useMiddle = false
+	}
+	if useMiddle {
+		return "middle-proxy"
+	}
+	dcAddr, err := telegram.ResolveAddr(dcID, cfg.MTProto.Backend)
+	if err != nil {
+		return "direct-dc"
+	}
+	return dcAddr
 }
 
 func formatClientRemote(ip string, port int) string {

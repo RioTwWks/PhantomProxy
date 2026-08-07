@@ -55,7 +55,7 @@ security:
   antireplay_cache_mb: 2
   max_connections_per_ip: 25
   handshake_timeout_sec: 12
-  probe_blacklist_threshold: 8
+  probe_blacklist_threshold: 50
   probe_blacklist_duration_sec: 7200
   probe_blacklist_window_sec: 600
 
