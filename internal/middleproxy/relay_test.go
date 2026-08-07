@@ -1,6 +1,7 @@
 package middleproxy
 
 import (
+	"bytes"
 	"testing"
 )
 
@@ -28,5 +29,42 @@ func TestBuildProxyReqWireTag(t *testing.T) {
 	}, id)
 	if !bytesEqual(msg[:4], rpcProxyReq) {
 		t.Fatalf("tag %x want %x", msg[:4], rpcProxyReq)
+	}
+}
+
+func TestProxyConnWriteBuffersUnalignedChunk(t *testing.T) {
+	// io.Copy часто отдаёт 406 байт — не кратно 4; буфер должен оставить остаток 2.
+	payload := make([]byte, 406)
+	chunkLen := len(payload) - (len(payload) % 4)
+	if chunkLen != 404 {
+		t.Fatalf("chunkLen %d", chunkLen)
+	}
+
+	var plain bytes.Buffer
+	pc := &proxyConn{
+		relay: &relayConn{},
+		opts: proxyConnOpts{
+			ClientIP:   "185.210.143.32",
+			ClientPort: 10300,
+			LocalIP:    "212.192.215.248",
+			LocalPort:  55924,
+		},
+	}
+	pc.connID = [8]byte{1, 2, 3, 4, 5, 6, 7, 8}
+
+	// Пишем через буфер вручную, как Write: 404 уходят, 2 остаются.
+	pc.writeBuf = append(pc.writeBuf, payload...)
+	if len(pc.writeBuf) < 4 {
+		t.Fatal("short buf")
+	}
+	chunkLen = len(pc.writeBuf) - (len(pc.writeBuf) % 4)
+	chunk := pc.writeBuf[:chunkLen]
+	msg := buildProxyReq(chunk, pc.opts, pc.connID[:])
+	if err := writeFrame(&plain, 0, msg); err != nil {
+		t.Fatal(err)
+	}
+	pc.writeBuf = pc.writeBuf[chunkLen:]
+	if len(pc.writeBuf) != 2 {
+		t.Fatalf("remainder %d", len(pc.writeBuf))
 	}
 }
