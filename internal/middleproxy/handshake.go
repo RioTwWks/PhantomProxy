@@ -4,17 +4,24 @@ import (
 	"context"
 	"crypto/rand"
 	"encoding/binary"
+	"errors"
 	"fmt"
+	"io"
+	"log/slog"
 	"net"
+	"os"
 	"time"
 )
 
+var (
+	rpcNonceTag     = []byte{0xaa, 0x87, 0xcb, 0x7a}
+	rpcHandshakeTag = []byte{0xf5, 0xee, 0x82, 0x76}
+	cryptoAESTag    = []byte{0x01, 0x00, 0x00, 0x00}
+)
+
 const (
-	rpcNonce      = 0xaa87cb7a
-	rpcHandshake  = 0xf5ee8276
-	startSeqNo    = int32(-2)
-	nonceLen      = 16
-	senderPID     = "IPIPPRPDTIME"
+	startSeqNo = int32(-2)
+	nonceLen   = 16
 )
 
 // DialOpts — параметры подключения через middle proxy.
@@ -111,9 +118,9 @@ func handshake(raw net.Conn, secret []byte, localIP string) (*relayConn, error) 
 	}
 
 	nonceMsg := make([]byte, 0, 32)
-	nonceMsg = append(nonceMsg, u32le(rpcNonce)...)
+	nonceMsg = append(nonceMsg, rpcNonceTag...)
 	nonceMsg = append(nonceMsg, keySelector...)
-	nonceMsg = append(nonceMsg, u32le(1)...) // CRYPTO_AES
+	nonceMsg = append(nonceMsg, cryptoAESTag...)
 	nonceMsg = append(nonceMsg, cryptoTS...)
 	nonceMsg = append(nonceMsg, nonce...)
 
@@ -121,7 +128,6 @@ func handshake(raw net.Conn, secret []byte, localIP string) (*relayConn, error) 
 	if err := writeFrame(raw, seq, nonceMsg); err != nil {
 		return nil, fmt.Errorf("RPC_NONCE: %w", err)
 	}
-	seq++
 
 	ans, err := readFrame(raw, &seq)
 	if err != nil {
@@ -130,7 +136,7 @@ func handshake(raw net.Conn, secret []byte, localIP string) (*relayConn, error) 
 	if len(ans) != 32 {
 		return nil, fmt.Errorf("RPC_NONCE ans len=%d", len(ans))
 	}
-	if !bytesEqual(ans[:4], u32le(rpcNonce)) || !bytesEqual(ans[4:8], keySelector) {
+	if !bytesEqual(ans[:4], rpcNonceTag) || !bytesEqual(ans[4:8], keySelector) {
 		return nil, fmt.Errorf("RPC_NONCE mismatch")
 	}
 	rpcNonceSrv := ans[16:32]
@@ -157,29 +163,55 @@ func handshake(raw net.Conn, secret []byte, localIP string) (*relayConn, error) 
 		return nil, err
 	}
 
-	handshakeMsg := make([]byte, 0, 32)
-	handshakeMsg = append(handshakeMsg, u32le(rpcHandshake)...)
-	handshakeMsg = append(handshakeMsg, u32le(0)...)
-	handshakeMsg = append(handshakeMsg, []byte(senderPID)...)
-	handshakeMsg = append(handshakeMsg, []byte(senderPID)...)
+	slog.Debug("middle proxy keys",
+		"srv_ip", peer.IP.String(), "srv_port", peer.Port,
+		"clt_ip", localIP, "clt_port", local.Port,
+	)
+
+	clientIPU32 := ipv4ToU32(net.ParseIP(localIP))
+	serverIPU32 := ipv4ToU32(peer.IP)
+	handshakeMsg := buildHandshakePayload(clientIPU32, uint16(local.Port), serverIPU32, uint16(peer.Port))
 
 	if err := writeFrame(cbc, seq, handshakeMsg); err != nil {
 		return nil, fmt.Errorf("RPC_HANDSHAKE: %w", err)
 	}
-	seq++
 
 	handshakeAns, err := readFrame(cbc, &seq)
 	if err != nil {
+		if err == io.EOF || errors.Is(err, io.EOF) {
+			return nil, fmt.Errorf("RPC_HANDSHAKE ans: EOF (проверьте middle_proxy_nat_ip=%q — должен совпадать с публичным IPv4 исходящих соединений)", localIP)
+		}
 		return nil, fmt.Errorf("RPC_HANDSHAKE ans: %w", err)
 	}
 	if len(handshakeAns) != 32 {
 		return nil, fmt.Errorf("RPC_HANDSHAKE ans len=%d", len(handshakeAns))
 	}
-	if !bytesEqual(handshakeAns[:4], u32le(rpcHandshake)) {
+	if !bytesEqual(handshakeAns[:4], rpcHandshakeTag) {
 		return nil, fmt.Errorf("RPC_HANDSHAKE type mismatch")
 	}
 
 	return &relayConn{raw: raw, cbc: cbc, seqNo: seq}, nil
+}
+
+// buildHandshakePayload — RPC_HANDSHAKE (32 байта): IP/порт клиента и ME-сервера.
+func buildHandshakePayload(clientIP uint32, clientPort uint16, serverIP uint32, serverPort uint16) []byte {
+	p := make([]byte, 32)
+	copy(p[0:4], rpcHandshakeTag)
+	binary.LittleEndian.PutUint32(p[8:12], clientIP)
+	binary.LittleEndian.PutUint16(p[12:14], clientPort)
+	binary.LittleEndian.PutUint16(p[14:16], uint16(os.Getpid()&0xffff))
+	binary.LittleEndian.PutUint32(p[16:20], uint32(time.Now().Unix()))
+	binary.LittleEndian.PutUint32(p[20:24], serverIP)
+	binary.LittleEndian.PutUint16(p[24:26], serverPort)
+	return p
+}
+
+func ipv4ToU32(ip net.IP) uint32 {
+	ip4 := ip.To4()
+	if ip4 == nil {
+		return 0
+	}
+	return binary.BigEndian.Uint32(ip4)
 }
 
 func u32le(v uint32) []byte {
