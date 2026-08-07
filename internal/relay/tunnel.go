@@ -17,8 +17,10 @@ import (
 )
 
 const (
-	magic       = "PHRP"
-	maxFrameLen = 64 * 1024
+	magic            = "PHRP"
+	handshakeBaseLen = 4 + 16 + 32 + 2 // magic + nonce + tag + dcID
+	handshakeLen     = handshakeBaseLen + 4 + 2 // + client IPv4 + port
+	maxFrameLen      = 64 * 1024
 )
 
 var (
@@ -27,8 +29,15 @@ var (
 	errFrameSize = errors.New("relay: слишком большой фрейм")
 )
 
-// DialFront открывает зашифрованный туннель Front→Back и передаёт dcID.
-func DialFront(ctx context.Context, peerAddr string, psk []byte, dcID int) (net.Conn, error) {
+// Meta — метаданные PHRP handshake (dcID и адрес клиента Telegram на Front).
+type Meta struct {
+	DCID       int
+	ClientIP   string
+	ClientPort int
+}
+
+// DialFront открывает зашифрованный туннель Front→Back и передаёт dcID и адрес клиента.
+func DialFront(ctx context.Context, peerAddr string, psk []byte, dcID int, clientAddr string) (net.Conn, error) {
 	if len(psk) == 0 {
 		return nil, errors.New("relay: psk обязателен")
 	}
@@ -48,13 +57,23 @@ func DialFront(ctx context.Context, peerAddr string, psk []byte, dcID int) (net.
 	mac.Write(nonce)
 	tag := mac.Sum(nil)
 
-	handshake := make([]byte, 0, 4+16+32+2)
+	handshake := make([]byte, 0, handshakeLen)
 	handshake = append(handshake, magic...)
 	handshake = append(handshake, nonce...)
 	handshake = append(handshake, tag...)
 	var dcBuf [2]byte
 	binary.BigEndian.PutUint16(dcBuf[:], uint16(dcID))
 	handshake = append(handshake, dcBuf[:]...)
+
+	clientIP, clientPort := parseClientAddr(clientAddr)
+	if ip4 := net.ParseIP(clientIP).To4(); ip4 != nil {
+		handshake = append(handshake, ip4...)
+	} else {
+		handshake = append(handshake, 0, 0, 0, 0)
+	}
+	var portBuf [2]byte
+	binary.BigEndian.PutUint16(portBuf[:], uint16(clientPort))
+	handshake = append(handshake, portBuf[:]...)
 
 	if _, err := conn.Write(handshake); err != nil {
 		_ = conn.Close()
@@ -69,8 +88,8 @@ func DialFront(ctx context.Context, peerAddr string, psk []byte, dcID int) (net.
 	return &frameConn{Conn: conn, aead: aead}, nil
 }
 
-// ServeBack принимает relay-соединения на listener и вызывает handler с dcID и потоком.
-func ServeBack(ctx context.Context, ln net.Listener, psk []byte, handler func(ctx context.Context, dcID int, stream net.Conn) error) error {
+// ServeBack принимает relay-соединения на listener и вызывает handler с meta и потоком.
+func ServeBack(ctx context.Context, ln net.Listener, psk []byte, handler func(ctx context.Context, meta Meta, stream net.Conn) error) error {
 	if len(psk) == 0 {
 		return errors.New("relay: psk обязателен")
 	}
@@ -93,26 +112,27 @@ func ServeBack(ctx context.Context, ln net.Listener, psk []byte, handler func(ct
 			defer c.Close()
 			remote := c.RemoteAddr().String()
 			slog.Info("relay back: входящее соединение", "remote", remote)
-			dcID, framed, err := acceptBack(c, psk)
+			dcID, framed, meta, err := acceptBack(c, psk)
 			if err != nil {
 				slog.Warn("relay back: handshake отклонён", "remote", remote, "err", err)
 				return
 			}
-			slog.Info("relay back: handshake ok", "remote", remote, "dc", dcID)
-			if err := handler(ctx, dcID, framed); err != nil {
+			meta.DCID = dcID
+			slog.Info("relay back: handshake ok", "remote", remote, "dc", dcID, "client", meta.ClientIP, "client_port", meta.ClientPort)
+			if err := handler(ctx, meta, framed); err != nil {
 				slog.Warn("relay back: сессия завершена с ошибкой", "remote", remote, "dc", dcID, "err", err)
 			}
 		}(conn)
 	}
 }
 
-func acceptBack(conn net.Conn, psk []byte) (int, net.Conn, error) {
-	hdr := make([]byte, 4+16+32+2)
+func acceptBack(conn net.Conn, psk []byte) (int, net.Conn, Meta, error) {
+	hdr := make([]byte, handshakeLen)
 	if _, err := io.ReadFull(conn, hdr); err != nil {
-		return 0, nil, err
+		return 0, nil, Meta{}, err
 	}
 	if string(hdr[:4]) != magic {
-		return 0, nil, errBadMagic
+		return 0, nil, Meta{}, errBadMagic
 	}
 	nonce := hdr[4:20]
 	tag := hdr[20:52]
@@ -120,15 +140,37 @@ func acceptBack(conn net.Conn, psk []byte) (int, net.Conn, error) {
 	mac.Write(nonce)
 	expected := mac.Sum(nil)
 	if !hmac.Equal(tag, expected) {
-		return 0, nil, errBadAuth
+		return 0, nil, Meta{}, errBadAuth
 	}
 	dcID := int(binary.BigEndian.Uint16(hdr[52:54]))
+	meta := Meta{
+		ClientIP:   net.IP(hdr[54:58]).String(),
+		ClientPort: int(binary.BigEndian.Uint16(hdr[58:60])),
+	}
 
 	aead, err := newAEAD(psk, nonce)
 	if err != nil {
-		return 0, nil, err
+		return 0, nil, Meta{}, err
 	}
-	return dcID, &frameConn{Conn: conn, aead: aead}, nil
+	return dcID, &frameConn{Conn: conn, aead: aead}, meta, nil
+}
+
+func parseClientAddr(remote string) (ip string, port int) {
+	if remote == "" {
+		return "", 0
+	}
+	host, portStr, err := net.SplitHostPort(remote)
+	if err != nil {
+		return remote, 0
+	}
+	var p int
+	for _, c := range portStr {
+		if c < '0' || c > '9' {
+			break
+		}
+		p = p*10 + int(c-'0')
+	}
+	return host, p
 }
 
 type frameConn struct {

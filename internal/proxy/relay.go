@@ -24,8 +24,8 @@ func (s *Server) serveRelayBack(ctx context.Context) error {
 	}
 	slog.Info("relay back слушает", "addr", cfg.Relay.ListenAddr())
 
-	return relaypkg.ServeBack(ctx, ln, psk, func(ctx context.Context, dcID int, stream net.Conn) error {
+	return relaypkg.ServeBack(ctx, ln, psk, func(ctx context.Context, meta relaypkg.Meta, stream net.Conn) error {
 		defer stream.Close()
-		return s.relayBackToDC(ctx, dcID, stream, "relay")
+		return s.relayBackToDC(ctx, meta, stream, "relay")
 	})
 }
