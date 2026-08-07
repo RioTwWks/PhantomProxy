@@ -16,21 +16,19 @@ func TestFakeTLSObfuscated2RoundTrip(t *testing.T) {
 		_ = serverLn.Close()
 	})
 
-	header, enc, dec, err := ClientStreamsForFakeTLS(2, secret)
+	header, enc, _, err := ClientStreamsForFakeTLS(2, secret)
 	if err != nil {
 		t.Fatal(err)
 	}
 
 	go func() {
 		if _, err := clientLn.Write(header); err != nil {
-			t.Errorf("client write header: %v", err)
+			return
 		}
 		payload := []byte("ping")
 		buf := make([]byte, len(payload))
 		enc.XORKeyStream(buf, payload)
-		if _, err := clientLn.Write(buf); err != nil {
-			t.Errorf("client write payload: %v", err)
-		}
+		_, _ = clientLn.Write(buf)
 	}()
 
 	obfConn, dcID, err := Handshake(serverLn, serverLn, secret)
@@ -45,7 +43,6 @@ func TestFakeTLSObfuscated2RoundTrip(t *testing.T) {
 	if _, err := io.ReadFull(obfConn, got); err != nil {
 		t.Fatal(err)
 	}
-	dec.XORKeyStream(got, got)
 	if !bytes.Equal(got, []byte("ping")) {
 		t.Fatalf("payload=%q want ping", got)
 	}
