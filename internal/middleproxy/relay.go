@@ -38,7 +38,7 @@ func newProxyConn(relay *relayConn, opts proxyConnOpts) net.Conn {
 
 func (c *proxyConn) Read(p []byte) (int, error) {
 	for len(c.relay.readBuf) == 0 {
-		frame, err := readFrame(c.relay.cbc, &c.relay.seqNo)
+		frame, err := readFrame(c.relay.cbc, &c.relay.readSeq)
 		if err != nil {
 			return 0, err
 		}
@@ -76,10 +76,10 @@ func (c *proxyConn) sendPayload(payload []byte) error {
 		return fmt.Errorf("middleproxy: длина payload %d не кратна 4", len(payload))
 	}
 	msg := buildProxyReq(payload, c.opts, c.connID[:])
-	if err := writeFrame(c.relay.cbc, c.relay.seqNo, msg); err != nil {
+	if err := writeFrame(c.relay.cbc, c.relay.writeSeq, msg); err != nil {
 		return err
 	}
-	c.relay.seqNo++
+	c.relay.writeSeq++
 	return nil
 }
 

@@ -68,3 +68,34 @@ func TestProxyConnWriteBuffersUnalignedChunk(t *testing.T) {
 		t.Fatalf("remainder %d", len(pc.writeBuf))
 	}
 }
+
+func TestIndependentReadWriteSeq(t *testing.T) {
+	// После handshake readSeq=0, writeSeq=0. Запись инкрементирует только writeSeq.
+	writeSeq := int32(0)
+	readSeq := int32(0)
+
+	var reqBuf bytes.Buffer
+	if err := writeFrame(&reqBuf, writeSeq, []byte{1, 2, 3, 4}); err != nil {
+		t.Fatal(err)
+	}
+	writeSeq++
+	if writeSeq != 1 || readSeq != 0 {
+		t.Fatalf("after write: read=%d write=%d", readSeq, writeSeq)
+	}
+
+	ans := make([]byte, 20)
+	copy(ans[:4], rpcProxyAns)
+	copy(ans[16:], []byte("ok"))
+	var ansBuf bytes.Buffer
+	if err := writeFrame(&ansBuf, 0, ans); err != nil {
+		t.Fatal(err)
+	}
+
+	got, err := readFrame(&ansBuf, &readSeq)
+	if err != nil {
+		t.Fatalf("read at seq 0 failed: %v", err)
+	}
+	if string(got[16:18]) != "ok" {
+		t.Fatalf("payload %q", got[16:])
+	}
+}
