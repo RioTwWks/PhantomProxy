@@ -68,3 +68,37 @@ ufw allow from RU_FRONT_IP to any port 15443 proto tcp
 - Мониторинг: `phantom_tls_reject_reason_total`, `phantom_probe_requests_total`
 
 Примеры конфигов: `configs/config.ru.yaml`, `configs/config.eu.yaml`.
+
+## Диагностика «ничего не происходит»
+
+Если при подключении из Telegram в логах **только старт**, без строк `входящее соединение`:
+
+1. **Порт не открыт снаружи** — проверь firewall хостера (панель VPS) и `iptables`/`ufw` на RU:
+   ```bash
+   ss -tlnp | grep 15443
+   nc -zv 37.9.4.136 15443   # с другого сервера или телефона (не Wi‑Fi дома)
+   ```
+2. **Нестандартный порт** — мобильные операторы в РФ часто режут не-443. Попробуй `listen.port: 443` на RU (если порт свободен).
+3. **Неверная ссылка** — IP, порт и секрет должны совпадать:
+   ```
+   tg://proxy?server=RU_PUBLIC_IP&port=15443&secret=ee...
+   ```
+
+Если `входящее соединение` есть, но нет `клиент подключён`:
+
+```bash
+./telegram-proxy run -config configs/config.ru.yaml -log-level debug
+```
+
+Смотри `fake TLS отклонён` — неверный секрет, replay, JA3 whitelist и т.д.
+
+Если RU подключает клиента, но EU молчит:
+
+```bash
+# с RU-сервера
+nc -zv 212.192.215.248 15443
+```
+
+На EU должен быть открыт **15443 только с IP RU** (`37.9.4.136`). В логах EU: `relay back: входящее соединение`.
+
+Полезные метрики: `curl -s http://127.0.0.1:9090/metrics | grep phantom_`
