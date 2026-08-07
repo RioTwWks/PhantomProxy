@@ -35,7 +35,7 @@ func (c *Conn) Write(b []byte) (int, error) {
 }
 
 // Handshake выполняет входящий obfuscated2 handshake.
-// secret == nil внутри Fake TLS (ключи без смешивания с секретом).
+// secret — 16-байтовый ключ ee/dd-секрета; для Fake TLS обязателен (SHA256(header_key||secret)).
 func Handshake(r io.Reader, rawConn net.Conn, secret []byte) (*Conn, int, error) {
 	header := make([]byte, 64)
 	if _, err := io.ReadFull(r, header); err != nil {
@@ -84,8 +84,17 @@ func Handshake(r io.Reader, rawConn net.Conn, secret []byte) (*Conn, int, error)
 	}, dcID, nil
 }
 
-// OutgoingHeader создаёт 64-байтовый заголовок для исходящего соединения к Telegram.
+// OutgoingHeader создаёт 64-байтовый заголовок для прямого соединения к DC (без секрета прокси).
 func OutgoingHeader(dcID int) (header []byte, enc cipher.Stream, dec cipher.Stream, err error) {
+	return outgoingHeader(dcID, nil)
+}
+
+// OutgoingHeaderWithSecret создаёт заголовок клиента после Fake TLS (ee) с deriveKey(secret).
+func OutgoingHeaderWithSecret(dcID int, secret []byte) (header []byte, enc cipher.Stream, dec cipher.Stream, err error) {
+	return outgoingHeader(dcID, secret)
+}
+
+func outgoingHeader(dcID int, secret []byte) (header []byte, enc cipher.Stream, dec cipher.Stream, err error) {
 	header = make([]byte, 64)
 
 	for {
@@ -110,15 +119,23 @@ func OutgoingHeader(dcID int) (header []byte, enc cipher.Stream, dec cipher.Stre
 		reversed[i] = header[63-i]
 	}
 
-	encKey := make([]byte, 32)
-	copy(encKey, header[8:40])
 	encIV := make([]byte, 16)
 	copy(encIV, header[40:56])
-
-	decKey := make([]byte, 32)
-	copy(decKey, reversed[8:40])
 	decIV := make([]byte, 16)
 	copy(decIV, reversed[40:56])
+
+	var encKey, decKey []byte
+	if len(secret) > 0 {
+		ek := deriveKey(header[8:40], secret)
+		dk := deriveKey(reversed[8:40], secret)
+		encKey = ek[:]
+		decKey = dk[:]
+	} else {
+		encKey = make([]byte, 32)
+		copy(encKey, header[8:40])
+		decKey = make([]byte, 32)
+		copy(decKey, reversed[8:40])
+	}
 
 	enc = newCTR(encKey, encIV)
 	dec = newCTR(decKey, decIV)
