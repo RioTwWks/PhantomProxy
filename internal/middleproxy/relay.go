@@ -83,15 +83,27 @@ func (c *proxyConn) sendPayload(payload []byte) error {
 	return nil
 }
 
-func (c *proxyConn) Close() error {
-	if len(c.writeBuf) > 0 {
-		pad := 4 - (len(c.writeBuf) % 4)
-		if pad < 4 {
-			c.writeBuf = append(c.writeBuf, make([]byte, pad)...)
-		}
-		_ = c.sendPayload(c.writeBuf)
-		c.writeBuf = nil
+func (c *proxyConn) flushWriteBuf() {
+	if len(c.writeBuf) == 0 {
+		return
 	}
+	pad := 4 - (len(c.writeBuf) % 4)
+	if pad < 4 {
+		c.writeBuf = append(c.writeBuf, make([]byte, pad)...)
+	}
+	_ = c.sendPayload(c.writeBuf)
+	c.writeBuf = nil
+}
+
+func (c *proxyConn) CloseWrite() error {
+	if tcp, ok := c.relay.raw.(*net.TCPConn); ok {
+		return tcp.CloseWrite()
+	}
+	return nil
+}
+
+func (c *proxyConn) Close() error {
+	c.flushWriteBuf()
 	return c.relay.raw.Close()
 }
 

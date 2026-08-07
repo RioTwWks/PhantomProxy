@@ -34,6 +34,13 @@ func (c *Conn) Write(b []byte) (int, error) {
 	return c.Conn.Write(buf)
 }
 
+func (c *Conn) CloseWrite() error {
+	if tcp, ok := c.Conn.(*net.TCPConn); ok {
+		return tcp.CloseWrite()
+	}
+	return nil
+}
+
 // Handshake выполняет входящий obfuscated2 handshake.
 // secret — 16-байтовый ключ ee/dd-секрета; для Fake TLS обязателен (SHA256(header_key||secret)).
 func Handshake(r io.Reader, rawConn net.Conn, secret []byte) (*Conn, int, error) {
@@ -166,6 +173,13 @@ func (c *OutgoingConn) Write(b []byte) (int, error) {
 	buf := make([]byte, len(b))
 	c.EncStream.XORKeyStream(buf, b)
 	return c.Conn.Write(buf)
+}
+
+func (c *OutgoingConn) CloseWrite() error {
+	if tcp, ok := c.Conn.(*net.TCPConn); ok {
+		return tcp.CloseWrite()
+	}
+	return nil
 }
 
 func newCTR(key, iv []byte) cipher.Stream {

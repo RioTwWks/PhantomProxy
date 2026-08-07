@@ -241,6 +241,13 @@ func (c *frameConn) Write(b []byte) (int, error) {
 	return total, nil
 }
 
+func (c *frameConn) CloseWrite() error {
+	if tcp, ok := c.Conn.(*net.TCPConn); ok {
+		return tcp.CloseWrite()
+	}
+	return nil
+}
+
 func (c *frameConn) writeFrame(payload []byte) error {
 	nonce := make([]byte, 12)
 	if _, err := rand.Read(nonce); err != nil {
