@@ -21,6 +21,8 @@ type RecordPolicy struct {
 	MaxChunk       int
 	EnableDRS      bool
 	EnableSplitTLS bool
+	RecordJitterMs int
+	DecoyPermille  int // 0-1000, вероятность decoy-записи
 }
 
 // DefaultRecordPolicy возвращает политику по умолчанию с рандомизацией размера.
@@ -215,10 +217,14 @@ type NoiseParams struct {
 }
 
 // WriteServerHelloWithNoise отправляет ServerHello с настраиваемым padding.
-func WriteServerHelloWithNoise(conn net.Conn, ch *ClientHello, secret []byte, noise NoiseParams) error {
+func WriteServerHelloWithNoise(conn net.Conn, ch *ClientHello, secret []byte, noise NoiseParams, helloRotator *ServerHelloRotator) error {
 	var buf bytes.Buffer
 
-	writeRecord(&buf, recordHandshake, buildServerHello(ch))
+	profile := ServerProfileChrome
+	if helloRotator != nil {
+		profile = helloRotator.Pick()
+	}
+	writeRecord(&buf, recordHandshake, buildServerHello(ch, profile))
 	writeRecord(&buf, recordChangeCipher, []byte{0x01})
 
 	padLen := noise.paddingLen()

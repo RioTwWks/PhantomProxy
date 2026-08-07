@@ -23,6 +23,7 @@ type Runtime struct {
 	Replay             *faketls.ReplayCache
 	Limiter            *limit.ConnLimiter
 	FingerprintRotator *faketls.FingerprintRotator
+	ServerHelloRotator *faketls.ServerHelloRotator
 	SNIRotator         *faketls.SNIRotator
 	ProbeBlacklist     *probe.Blacklist
 	StartedAt          time.Time
@@ -54,8 +55,18 @@ func (r *Runtime) applySecurityFeatures(cfg config.Config) {
 		fp, _ = faketls.NewFingerprintRotator(nil, faketls.RotationPerConnection, 300, 20)
 	}
 	r.FingerprintRotator = fp
+	r.ServerHelloRotator = faketls.NewServerHelloRotator(
+		cfg.TLS.ServerHelloPool,
+		cfg.TLS.ServerHelloRotation,
+		cfg.TLS.ServerHelloRotationInterval,
+		cfg.TLS.ServerHelloAdaptiveThreshold,
+	)
 	r.SNIRotator = faketls.NewSNIRotator(cfg.TLS.SNIPool, cfg.TLS.SNIRotation, cfg.TLS.SNIRotationInterval)
-	r.ProbeBlacklist = probe.NewBlacklist(cfg.Security.ProbeBlacklistThreshold, cfg.Security.ProbeBlacklistDurationSec)
+	r.ProbeBlacklist = probe.NewBlacklist(
+		cfg.Security.ProbeBlacklistThreshold,
+		cfg.Security.ProbeBlacklistDurationSec,
+		cfg.Security.ProbeBlacklistWindowSec,
+	)
 }
 
 // PickMaskSNI возвращает SNI для fronting/fallback с учётом пула.

@@ -6,6 +6,7 @@ import (
 	"fmt"
 	"io"
 	"net"
+	"time"
 )
 
 const (
@@ -22,6 +23,7 @@ type RecordConn struct {
 	recordsWritten int
 	bytesWritten   int64
 	splitDone      bool
+	decoySent      int
 }
 
 // Read читает полезную нагрузку из TLS Application Data записей.
@@ -70,6 +72,15 @@ func (c *RecordConn) Write(b []byte) (int, error) {
 	}
 
 	for len(b) > 0 {
+		if policy.DecoyPermille > 0 && policy.DecoyPermille > randInt(1000) {
+			if err := c.writeDecoyRecord(); err != nil {
+				return total, err
+			}
+		}
+		if policy.RecordJitterMs > 0 {
+			delay := time.Duration(randInt(policy.RecordJitterMs+1)) * time.Millisecond
+			time.Sleep(delay)
+		}
 		chunkSize := c.outboundChunkSize(policy, len(b))
 		chunk := b[:chunkSize]
 
@@ -117,6 +128,19 @@ func (c *RecordConn) writeRecord(chunk []byte) (int, error) {
 	c.recordsWritten++
 	c.bytesWritten += int64(len(chunk))
 	return len(chunk), nil
+}
+
+func (c *RecordConn) writeDecoyRecord() error {
+	size := 16 + randInt(48)
+	payload := make([]byte, size)
+	for i := range payload {
+		payload[i] = byte(randInt(256))
+	}
+	_, err := c.writeRecord(payload)
+	if err == nil {
+		c.decoySent++
+	}
+	return err
 }
 
 func (p RecordPolicy) chunkSizeWithMax(remaining, maxChunk int) int {

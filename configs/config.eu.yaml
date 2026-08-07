@@ -1,0 +1,51 @@
+# PhantomProxy — BACK (Европа)
+# Принимает relay от RU Front, выходит в Telegram через middle proxy.
+# Клиенты Telegram сюда НЕ подключаются напрямую.
+
+listen:
+  host: "127.0.0.1"
+  port: 8443
+
+protocols:
+  fake_tls: false
+  secure: false
+
+mtproto:
+  use_middle_proxy: true
+  middle_proxy_nat_ip: "EU_PUBLIC_IPV4"
+  # ad_tag: "0123456789abcdef0123456789abcdef"
+  users:
+    - name: relay
+      secret: "ee000000000000000000000000000000006c6f63616c686f7374"
+      enabled: true
+
+tls:
+  enable_drs: true
+  enable_split_tls: true
+
+relay:
+  mode: back
+  listen_host: "0.0.0.0"
+  listen_port: 9443
+  psk: "REPLACE_WITH_SHARED_PSK_HEX"
+
+security:
+  antireplay_cache_mb: 1
+  max_connections_per_ip: 0
+  handshake_timeout_sec: 10
+
+management:
+  host: "127.0.0.1"
+  port: 8081
+  token: "CHANGE-ME-STRONG-TOKEN"
+
+metrics:
+  host: "127.0.0.1"
+  port: 9090
+
+fallback:
+  honeypot: true
+  upstream: "http://127.0.0.1:8080"
+
+fronting:
+  action: splice

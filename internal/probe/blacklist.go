@@ -6,27 +6,32 @@ import (
 	"time"
 )
 
-// Blacklist блокирует IP с большим числом невалидных подключений.
+// Blacklist блокирует IP с большим числом невалидных подключений (скользящее окно).
 type Blacklist struct {
 	mu        sync.Mutex
 	threshold int
 	duration  time.Duration
-	counts    map[string]int
+	window    time.Duration
+	counts    map[string][]time.Time
 	blocked   map[string]time.Time
 }
 
 // NewBlacklist создаёт blacklist. threshold <= 0 — отключён.
-func NewBlacklist(threshold, durationSec int) *Blacklist {
+func NewBlacklist(threshold, durationSec, windowSec int) *Blacklist {
 	if threshold <= 0 {
 		return nil
 	}
 	if durationSec <= 0 {
 		durationSec = 3600
 	}
+	if windowSec <= 0 {
+		windowSec = 600
+	}
 	return &Blacklist{
 		threshold: threshold,
 		duration:  time.Duration(durationSec) * time.Second,
-		counts:    make(map[string]int),
+		window:    time.Duration(windowSec) * time.Second,
+		counts:    make(map[string][]time.Time),
 		blocked:   make(map[string]time.Time),
 	}
 }
@@ -62,9 +67,20 @@ func (b *Blacklist) RecordProbe(ip string) bool {
 		return true
 	}
 
-	b.counts[ip]++
-	if b.counts[ip] >= b.threshold {
-		b.blocked[ip] = time.Now().Add(b.duration)
+	now := time.Now()
+	cutoff := now.Add(-b.window)
+	times := b.counts[ip]
+	pruned := times[:0]
+	for _, t := range times {
+		if t.After(cutoff) {
+			pruned = append(pruned, t)
+		}
+	}
+	pruned = append(pruned, now)
+	b.counts[ip] = pruned
+
+	if len(pruned) >= b.threshold {
+		b.blocked[ip] = now.Add(b.duration)
 		delete(b.counts, ip)
 		return true
 	}

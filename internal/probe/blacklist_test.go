@@ -7,7 +7,7 @@ import (
 )
 
 func TestBlacklistBlocksAfterThreshold(t *testing.T) {
-	bl := probe.NewBlacklist(3, 60)
+	bl := probe.NewBlacklist(3, 60, 600)
 	if bl.IsBlocked("1.2.3.4") {
 		t.Fatal("не должен быть заблокирован сразу")
 	}
@@ -25,7 +25,7 @@ func TestBlacklistBlocksAfterThreshold(t *testing.T) {
 }
 
 func TestBlacklistDisabled(t *testing.T) {
-	if probe.NewBlacklist(0, 60) != nil {
+	if probe.NewBlacklist(0, 60, 600) != nil {
 		t.Fatal("threshold 0 = отключено")
 	}
 }

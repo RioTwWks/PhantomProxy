@@ -16,6 +16,7 @@ import (
 	"github.com/RioTwWks/PhantomProxy/internal/middleproxy"
 	"github.com/RioTwWks/PhantomProxy/internal/obfuscated2"
 	"github.com/RioTwWks/PhantomProxy/internal/probe"
+	relaypkg "github.com/RioTwWks/PhantomProxy/internal/relay"
 	"github.com/RioTwWks/PhantomProxy/internal/runtime"
 	"github.com/RioTwWks/PhantomProxy/internal/telegram"
 	"github.com/RioTwWks/PhantomProxy/internal/upstream"
@@ -47,6 +48,15 @@ func (s *Server) Serve(ctx context.Context) error {
 	s.lnMu.Unlock()
 
 	slog.Info("прокси слушает", "addr", addr, "users", len(s.rt.Users.Users()))
+
+	cfg := s.rt.Snapshot()
+	if cfg.Relay.IsBack() {
+		go func() {
+			if err := s.serveRelayBack(ctx); err != nil && ctx.Err() == nil {
+				slog.Error("relay back", "err", err)
+			}
+		}()
+	}
 
 	go func() {
 		<-ctx.Done()
@@ -191,14 +201,25 @@ func (s *Server) handleFakeTLSPath(ctx context.Context, rec *faketls.ReadRecorde
 			return fmt.Errorf("replay attack")
 		}
 
+		cfg := s.rt.Snapshot()
+		if err := policyRejectError(ch, cfg.TLS.ClientHelloPolicy); err != nil {
+			return err
+		}
+		if cfg.TLS.ClientHelloPolicy == faketls.ClientHelloPolicyLog && faketls.HasECH(ch) {
+			slog.Debug("client hello ECH detected", "remote", remote)
+		}
+
 		matched, matchErr := s.rt.Users.MatchClientHello(ch)
 		if matchErr != nil {
 			return matchErr
 		}
 
-		cfg := s.rt.Snapshot()
-		if err := faketls.WriteServerHelloWithNoise(rec, ch, matched.Secret.Key[:], cfg.NoiseParams()); err != nil {
+		if err := faketls.WriteServerHelloWithNoise(rec, ch, matched.Secret.Key[:], cfg.NoiseParams(), s.rt.ServerHelloRotator); err != nil {
 			return fmt.Errorf("server hello: %w", err)
+		}
+
+		if delay := cfg.PostHandshakeDelay(); delay > 0 {
+			time.Sleep(delay)
 		}
 
 		tlsConn := &faketls.RecordConn{Conn: rec, Policy: cfg.RecordPolicy()}
@@ -212,19 +233,12 @@ func (s *Server) handleFakeTLSPath(ctx context.Context, rec *faketls.ReadRecorde
 
 	if err != nil {
 		slog.Debug("fake TLS отклонён", "remote", remote, "err", err)
-		if s.rt.FingerprintRotator != nil {
-			s.rt.FingerprintRotator.RecordFailure()
-		}
-		if s.metrics != nil {
-			s.metrics.FakeTLSRejected().Inc()
-		}
+		s.onHandshakeFailure(err)
 		s.recordProbe(rec)
 		s.handleRejectedTLS(rec, ch, remote)
 		return
 	}
-	if s.rt.FingerprintRotator != nil {
-		s.rt.FingerprintRotator.RecordSuccess()
-	}
+	s.onHandshakeSuccess()
 }
 
 func (s *Server) handleRejectedTLS(conn *faketls.ReadRecorder, ch *faketls.ClientHello, remote string) {
@@ -288,6 +302,35 @@ func (s *Server) relayMTProto(ctx context.Context, conn net.Conn, obfConn *obfus
 	_ = conn.SetReadDeadline(time.Time{})
 
 	cfg := s.rt.Snapshot()
+
+	if cfg.Relay.IsFront() {
+		psk, err := cfg.Relay.PSKBytes()
+		if err != nil {
+			return err
+		}
+		peer := cfg.Relay.PeerAddr
+		if peer == "" {
+			return fmt.Errorf("relay.peer_addr обязателен в front-режиме")
+		}
+		relayConn, err := relaypkg.DialFront(ctx, peer, psk, dcID)
+		if err != nil {
+			return fmt.Errorf("relay front: %w", err)
+		}
+		defer relayConn.Close()
+
+		s.rt.Stats.OnConnect(userName)
+		defer s.rt.Stats.OnDisconnect(userName)
+		slog.Info("клиент подключён", "user", userName, "remote", remote, "dc", dcID, "backend", "relay-front", "peer", peer)
+
+		up, down := pipeTraffic(obfConn, relayConn)
+		s.rt.Stats.AddTraffic(userName, up, down)
+		if s.metrics != nil {
+			s.metrics.RecordTraffic(up, down)
+		}
+		slog.Info("клиент отключён", "user", userName, "remote", remote, "upload", up, "download", down)
+		return nil
+	}
+
 	adTag, err := middleproxy.ParseAdTag(cfg.MTProto.AdTag)
 	if err != nil {
 		return err
@@ -313,30 +356,10 @@ func (s *Server) relayMTProto(ctx context.Context, conn net.Conn, obfConn *obfus
 			return fmt.Errorf("middle proxy DC %d: %w", dcID, err)
 		}
 	} else {
-		dcAddr, err := telegram.ResolveAddr(dcID, cfg.MTProto.Backend)
+		dcConn, err = s.dialDirectDC(ctx, cfg, dcID)
 		if err != nil {
 			return err
 		}
-		dialer := &upstream.Dialer{
-			SOCKS5:   cfg.Upstream.SOCKS5,
-			PreferIP: cfg.Upstream.PreferIP,
-			Timeout:  10 * time.Second,
-		}
-		dcConn, err = dialer.DialContext(ctx, "tcp", dcAddr)
-		if err != nil {
-			return fmt.Errorf("DC %s: %w", dcAddr, err)
-		}
-
-		hdr, enc, dec, err := obfuscated2.OutgoingHeader(dcID)
-		if err != nil {
-			_ = dcConn.Close()
-			return err
-		}
-		if _, err := dcConn.Write(hdr); err != nil {
-			_ = dcConn.Close()
-			return err
-		}
-		dcConn = &obfuscated2.OutgoingConn{Conn: dcConn, EncStream: enc, DecStream: dec}
 	}
 	defer dcConn.Close()
 
@@ -357,7 +380,7 @@ func (s *Server) relayMTProto(ctx context.Context, conn net.Conn, obfConn *obfus
 	}
 	slog.Info("клиент подключён", fields...)
 
-	up, down := relay(obfConn, dcConn)
+	up, down := pipeTraffic(obfConn, dcConn)
 	s.rt.Stats.AddTraffic(userName, up, down)
 	if s.metrics != nil {
 		s.metrics.RecordTraffic(up, down)
@@ -373,7 +396,7 @@ func remoteAddr(conn net.Conn) string {
 	return conn.RemoteAddr().String()
 }
 
-func relay(client io.ReadWriteCloser, server io.ReadWriteCloser) (upload, download int64) {
+func pipeTraffic(client io.ReadWriteCloser, server io.ReadWriteCloser) (upload, download int64) {
 	var wg sync.WaitGroup
 	wg.Add(2)
 	go func() {
@@ -390,4 +413,75 @@ func relay(client io.ReadWriteCloser, server io.ReadWriteCloser) (upload, downlo
 	}()
 	wg.Wait()
 	return upload, download
+}
+
+func (s *Server) relayBackToDC(ctx context.Context, dcID int, stream net.Conn, userName string) error {
+	cfg := s.rt.Snapshot()
+	dcConn, err := s.dialDC(ctx, cfg, dcID, "")
+	if err != nil {
+		return err
+	}
+	defer dcConn.Close()
+
+	s.rt.Stats.OnConnect(userName)
+	defer s.rt.Stats.OnDisconnect(userName)
+	slog.Info("relay back подключён", "user", userName, "dc", dcID)
+
+	up, down := pipeTraffic(stream, dcConn)
+	s.rt.Stats.AddTraffic(userName, up, down)
+	if s.metrics != nil {
+		s.metrics.RecordTraffic(up, down)
+	}
+	return nil
+}
+
+func (s *Server) dialDirectDC(ctx context.Context, cfg config.Config, dcID int) (net.Conn, error) {
+	dcAddr, err := telegram.ResolveAddr(dcID, cfg.MTProto.Backend)
+	if err != nil {
+		return nil, err
+	}
+	dialer := &upstream.Dialer{
+		SOCKS5:   cfg.Upstream.SOCKS5,
+		PreferIP: cfg.Upstream.PreferIP,
+		Timeout:  10 * time.Second,
+	}
+	dcConn, err := dialer.DialContext(ctx, "tcp", dcAddr)
+	if err != nil {
+		return nil, fmt.Errorf("DC %s: %w", dcAddr, err)
+	}
+
+	hdr, enc, dec, err := obfuscated2.OutgoingHeader(dcID)
+	if err != nil {
+		_ = dcConn.Close()
+		return nil, err
+	}
+	if _, err := dcConn.Write(hdr); err != nil {
+		_ = dcConn.Close()
+		return nil, err
+	}
+	return &obfuscated2.OutgoingConn{Conn: dcConn, EncStream: enc, DecStream: dec}, nil
+}
+
+func (s *Server) dialDC(ctx context.Context, cfg config.Config, dcID int, remote string) (net.Conn, error) {
+	adTag, err := middleproxy.ParseAdTag(cfg.MTProto.AdTag)
+	if err != nil {
+		return nil, err
+	}
+	useMiddle := cfg.MTProto.UseMiddleProxy || len(adTag) > 0
+	if useMiddle && cfg.Upstream.SOCKS5 != "" {
+		slog.Warn("middle proxy несовместим с SOCKS5 upstream, используется direct")
+		useMiddle = false
+	}
+	if useMiddle {
+		clientIP, clientPort := splitHostPort(remote)
+		return middleproxy.Dial(ctx, middleproxy.DialOpts{
+			DCID:        dcID,
+			ClientIP:    clientIP,
+			ClientPort:  clientPort,
+			LocalIP:     cfg.MTProto.MiddleProxyNatIP,
+			AdTag:       adTag,
+			DialTimeout: 10 * time.Second,
+		})
+	}
+	return s.dialDirectDC(ctx, cfg, dcID)
 }
