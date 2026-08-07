@@ -222,7 +222,7 @@ func (s *Server) handleFakeTLSPath(ctx context.Context, rec *faketls.ReadRecorde
 		}
 
 		tlsConn := &faketls.RecordConn{Conn: rec, Policy: cfg.RecordPolicy()}
-		obfConn, dcID, err := obfuscated2.Handshake(tlsConn, tlsConn, nil)
+		obfConn, dcID, err := obfuscated2.Handshake(tlsConn, tlsConn, matched.Secret.Key[:])
 		if err != nil {
 			return fmt.Errorf("obfuscated2: %w", err)
 		}

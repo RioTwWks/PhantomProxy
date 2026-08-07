@@ -33,7 +33,7 @@ func (c *Client) Dial(proxyAddr string) (net.Conn, error) {
 		dcID = 2
 	}
 
-	header, enc, dec, err := obfuscated2.ClientStreams(dcID)
+	header, enc, dec, err := obfuscated2.ClientStreamsForFakeTLS(dcID, c.Secret.Key[:])
 	if err != nil {
 		_ = conn.Close()
 		return nil, err
