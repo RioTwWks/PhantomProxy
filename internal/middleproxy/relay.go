@@ -24,9 +24,10 @@ type proxyConnOpts struct {
 }
 
 type proxyConn struct {
-	relay *relayConn
-	opts  proxyConnOpts
-	connID [8]byte
+	relay    *relayConn
+	opts     proxyConnOpts
+	connID   [8]byte
+	writeBuf []byte
 }
 
 func newProxyConn(relay *relayConn, opts proxyConnOpts) net.Conn {
@@ -56,18 +57,41 @@ func (c *proxyConn) Read(p []byte) (int, error) {
 }
 
 func (c *proxyConn) Write(p []byte) (int, error) {
-	if len(p)%4 != 0 {
-		return 0, fmt.Errorf("middleproxy: длина сообщения должна быть кратна 4")
+	if len(p) == 0 {
+		return 0, nil
 	}
-	msg := buildProxyReq(p, c.opts, c.connID[:])
-	if err := writeFrame(c.relay.cbc, c.relay.seqNo, msg); err != nil {
-		return 0, err
+	c.writeBuf = append(c.writeBuf, p...)
+	for len(c.writeBuf) >= 4 {
+		chunkLen := len(c.writeBuf) - (len(c.writeBuf) % 4)
+		if err := c.sendPayload(c.writeBuf[:chunkLen]); err != nil {
+			return 0, err
+		}
+		c.writeBuf = c.writeBuf[chunkLen:]
 	}
-	c.relay.seqNo++
 	return len(p), nil
 }
 
+func (c *proxyConn) sendPayload(payload []byte) error {
+	if len(payload) == 0 || len(payload)%4 != 0 {
+		return fmt.Errorf("middleproxy: длина payload %d не кратна 4", len(payload))
+	}
+	msg := buildProxyReq(payload, c.opts, c.connID[:])
+	if err := writeFrame(c.relay.cbc, c.relay.seqNo, msg); err != nil {
+		return err
+	}
+	c.relay.seqNo++
+	return nil
+}
+
 func (c *proxyConn) Close() error {
+	if len(c.writeBuf) > 0 {
+		pad := 4 - (len(c.writeBuf) % 4)
+		if pad < 4 {
+			c.writeBuf = append(c.writeBuf, make([]byte, pad)...)
+		}
+		_ = c.sendPayload(c.writeBuf)
+		c.writeBuf = nil
+	}
 	return c.relay.raw.Close()
 }
 

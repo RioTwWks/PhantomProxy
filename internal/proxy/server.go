@@ -7,6 +7,7 @@ import (
 	"log/slog"
 	"net"
 	"strconv"
+	"strings"
 	"sync"
 	"time"
 
@@ -401,18 +402,34 @@ func pipeTraffic(client io.ReadWriteCloser, server io.ReadWriteCloser) (upload, 
 	wg.Add(2)
 	go func() {
 		defer wg.Done()
-		n, _ := io.Copy(server, client)
+		n, err := io.Copy(server, client)
 		upload = n
+		if err != nil && !isClosedConnErr(err) {
+			slog.Debug("pipe upload завершён с ошибкой", "bytes", n, "err", err)
+		}
 		_ = server.Close()
 	}()
 	go func() {
 		defer wg.Done()
-		n, _ := io.Copy(client, server)
+		n, err := io.Copy(client, server)
 		download = n
+		if err != nil && !isClosedConnErr(err) {
+			slog.Debug("pipe download завершён с ошибкой", "bytes", n, "err", err)
+		}
 		_ = client.Close()
 	}()
 	wg.Wait()
 	return upload, download
+}
+
+func isClosedConnErr(err error) bool {
+	if err == nil {
+		return false
+	}
+	s := err.Error()
+	return strings.Contains(s, "use of closed network connection") ||
+		strings.Contains(s, "connection reset") ||
+		strings.Contains(s, "broken pipe")
 }
 
 func (s *Server) relayBackToDC(ctx context.Context, meta relaypkg.Meta, stream net.Conn, userName string) error {
@@ -430,6 +447,9 @@ func (s *Server) relayBackToDC(ctx context.Context, meta relaypkg.Meta, stream n
 	slog.Info("relay back подключён", "user", userName, "dc", meta.DCID, "client", remote)
 
 	up, down := pipeTraffic(stream, dcConn)
+	if up == 0 && down == 0 {
+		slog.Debug("relay back: сессия без трафика", "client", remote)
+	}
 	s.rt.Stats.AddTraffic(userName, up, down)
 	if s.metrics != nil {
 		s.metrics.RecordTraffic(up, down)
