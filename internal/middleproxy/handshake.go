@@ -101,10 +101,11 @@ func dialEndpoint(ctx context.Context, ep Endpoint, opts DialOpts) (net.Conn, er
 }
 
 type relayConn struct {
-	raw     net.Conn
-	cbc     *cbcConn
-	seqNo   int32
-	readBuf []byte
+	raw      net.Conn
+	cbc      *cbcConn
+	readSeq  int32
+	writeSeq int32
+	readBuf  []byte
 }
 
 func handshake(raw net.Conn, secret []byte, localIP string) (*relayConn, error) {
@@ -124,12 +125,14 @@ func handshake(raw net.Conn, secret []byte, localIP string) (*relayConn, error) 
 	nonceMsg = append(nonceMsg, cryptoTS...)
 	nonceMsg = append(nonceMsg, nonce...)
 
-	seq := startSeqNo
-	if err := writeFrame(raw, seq, nonceMsg); err != nil {
+	readSeq := startSeqNo
+	writeSeq := startSeqNo
+	if err := writeFrame(raw, writeSeq, nonceMsg); err != nil {
 		return nil, fmt.Errorf("RPC_NONCE: %w", err)
 	}
+	writeSeq++
 
-	ans, err := readFrame(raw, &seq)
+	ans, err := readFrame(raw, &readSeq)
 	if err != nil {
 		return nil, fmt.Errorf("RPC_NONCE ans: %w", err)
 	}
@@ -172,11 +175,12 @@ func handshake(raw net.Conn, secret []byte, localIP string) (*relayConn, error) 
 	serverIPU32 := ipv4ToU32(peer.IP)
 	handshakeMsg := buildHandshakePayload(clientIPU32, uint16(local.Port), serverIPU32, uint16(peer.Port))
 
-	if err := writeFrame(cbc, seq, handshakeMsg); err != nil {
+	if err := writeFrame(cbc, writeSeq, handshakeMsg); err != nil {
 		return nil, fmt.Errorf("RPC_HANDSHAKE: %w", err)
 	}
+	writeSeq++
 
-	handshakeAns, err := readFrame(cbc, &seq)
+	handshakeAns, err := readFrame(cbc, &readSeq)
 	if err != nil {
 		if err == io.EOF || errors.Is(err, io.EOF) {
 			return nil, fmt.Errorf("RPC_HANDSHAKE ans: EOF (проверьте middle_proxy_nat_ip=%q — должен совпадать с публичным IPv4 исходящих соединений)", localIP)
@@ -190,7 +194,7 @@ func handshake(raw net.Conn, secret []byte, localIP string) (*relayConn, error) 
 		return nil, fmt.Errorf("RPC_HANDSHAKE type mismatch")
 	}
 
-	return &relayConn{raw: raw, cbc: cbc, seqNo: seq}, nil
+	return &relayConn{raw: raw, cbc: cbc, readSeq: readSeq, writeSeq: writeSeq}, nil
 }
 
 // buildHandshakePayload — RPC_HANDSHAKE (32 байта): IP/порт клиента и ME-сервера.
