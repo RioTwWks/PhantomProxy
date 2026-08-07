@@ -1,0 +1,79 @@
+# PhantomProxy — FRONT (Россия)
+# Клиенты Telegram подключаются сюда по MTProto (порт 443).
+# Трафик уходит на EU Back через relay-туннель.
+
+listen:
+  host: "0.0.0.0"
+  port: 15443
+
+protocols:
+  fake_tls: true
+  secure: true
+
+mtproto:
+  users:
+    - name: main
+      # Сгенерируй: ./telegram-proxy generate microsoft.com
+      secret: "eeREPLACE_WITH_GENERATED_SECRET"
+      enabled: true
+
+tls:
+  record_min_chunk: 512
+  record_max_chunk: 4096
+  noise_mean: 3000
+  noise_jitter: 800
+  enable_drs: true
+  enable_split_tls: true
+  fingerprint_pool:
+    - chrome_auto
+    - firefox_120
+    - edge_auto
+  fingerprint_rotation: adaptive
+  fingerprint_adaptive_threshold: 15
+  server_hello_pool:
+    - chrome
+    - firefox
+    - edge
+    - safari
+  server_hello_rotation: per_connection
+  sni_pool:
+    - microsoft.com
+    - yandex.ru
+    - cloudflare.com
+  sni_rotation: per_connection
+  record_jitter_ms: 30
+  decoy_permille: 20
+  post_handshake_delay_ms: 120
+  client_hello_policy: log
+
+fronting:
+  enabled: true
+  port: 443
+  action: splice
+
+security:
+  antireplay_cache_mb: 2
+  max_connections_per_ip: 25
+  handshake_timeout_sec: 12
+  probe_blacklist_threshold: 8
+  probe_blacklist_duration_sec: 7200
+  probe_blacklist_window_sec: 600
+
+fallback:
+  honeypot: true
+  upstream: "http://127.0.0.1:8080"
+
+relay:
+  mode: front
+  peer_addr: "EU_SERVER_IP:15443"
+  psk: "fe0e30e5bc2ba6a978f8c17c04daa9140ea43106ffa2ebfeb760f7ad164fa963"  # openssl rand -hex 32
+
+management:
+  host: "127.0.0.1"
+  port: 8081
+  token: "CHANGE-ME-STRONG-TOKEN"
+  public_server: "RU_SERVER_IP"
+
+metrics:
+  host: "127.0.0.1"
+  port: 9090

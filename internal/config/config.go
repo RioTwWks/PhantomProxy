@@ -286,7 +286,7 @@ func loadFile(path string) (Config, error) {
 	v.SetDefault("tls.server_hello_adaptive_threshold", 20)
 	v.SetDefault("tls.client_hello_policy", "log")
 	v.SetDefault("relay.mode", "off")
-	v.SetDefault("relay.listen_port", 9443)
+	v.SetDefault("relay.listen_port", 15443)
 	v.SetDefault("management.host", "127.0.0.1")
 	v.SetDefault("management.port", 8081)
 	v.SetDefault("management.service_name", "phantom-proxy")

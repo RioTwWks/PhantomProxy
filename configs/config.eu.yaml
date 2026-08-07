@@ -4,7 +4,7 @@
 
 listen:
   host: "127.0.0.1"
-  port: 8443
+  port: 15443
 
 protocols:
   fake_tls: false
@@ -26,8 +26,8 @@ tls:
 relay:
   mode: back
   listen_host: "0.0.0.0"
-  listen_port: 9443
-  psk: "REPLACE_WITH_SHARED_PSK_HEX"
+  listen_port: 15443
+  psk: "fe0e30e5bc2ba6a978f8c17c04daa9140ea43106ffa2ebfeb760f7ad164fa963"
 
 security:
   antireplay_cache_mb: 1
