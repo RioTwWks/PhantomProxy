@@ -1,10 +1,10 @@
 # PhantomProxy — BACK (Европа)
-# Принимает relay от RU Front, выходит в Telegram через middle proxy.
-# Клиенты Telegram сюда НЕ подключаются напрямую.
+# Принимает relay от RU Front на relay.listen_port.
+# listen.* игнорируется в relay.mode: back (клиенты сюда не подключаются).
 
 listen:
   host: "127.0.0.1"
-  port: 15443
+  port: 1
 
 protocols:
   fake_tls: false
