@@ -9,10 +9,10 @@ import (
 	"time"
 )
 
-const (
-	rpcProxyReq = 0xeef1ce36
-	rpcProxyAns = 0x0dda0344
-	rpcSimpleAck = 0x9b40ac3b
+var (
+	rpcProxyReq  = []byte{0xee, 0xf1, 0xce, 0x36}
+	rpcProxyAns  = []byte{0x0d, 0xda, 0x03, 0x44}
+	rpcSimpleAck = []byte{0x9b, 0x40, 0xac, 0x3b}
 )
 
 type proxyConnOpts struct {
@@ -87,14 +87,13 @@ func parseProxyAns(frame []byte) ([]byte, error) {
 	if len(frame) < 4 {
 		return nil, io.EOF
 	}
-	typ := binary.LittleEndian.Uint32(frame[:4])
-	switch typ {
-	case rpcProxyAns:
+	switch {
+	case bytesEqual(frame[:4], rpcProxyAns):
 		if len(frame) < 16 {
 			return nil, fmt.Errorf("короткий RPC_PROXY_ANS")
 		}
 		return frame[16:], nil
-	case rpcSimpleAck:
+	case bytesEqual(frame[:4], rpcSimpleAck):
 		return nil, nil
 	default:
 		return nil, nil
@@ -121,7 +120,7 @@ func buildProxyReq(payload []byte, opts proxyConnOpts, connID []byte) []byte {
 	}
 
 	msg := make([]byte, 0, 64+len(payload))
-	msg = append(msg, u32le(rpcProxyReq)...)
+	msg = append(msg, rpcProxyReq...)
 	flagsBytes := make([]byte, 4)
 	binary.LittleEndian.PutUint32(flagsBytes, flags)
 	msg = append(msg, flagsBytes...)

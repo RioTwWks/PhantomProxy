@@ -6,6 +6,7 @@ import (
 	"io"
 	"log/slog"
 	"net"
+	"strconv"
 	"sync"
 	"time"
 
@@ -311,7 +312,7 @@ func (s *Server) relayMTProto(ctx context.Context, conn net.Conn, obfConn *obfus
 		if peer == "" {
 			return fmt.Errorf("relay.peer_addr обязателен в front-режиме")
 		}
-		relayConn, err := relaypkg.DialFront(ctx, peer, psk, dcID)
+		relayConn, err := relaypkg.DialFront(ctx, peer, psk, dcID, remote)
 		if err != nil {
 			return fmt.Errorf("relay front: %w", err)
 		}
@@ -414,18 +415,19 @@ func pipeTraffic(client io.ReadWriteCloser, server io.ReadWriteCloser) (upload, 
 	return upload, download
 }
 
-func (s *Server) relayBackToDC(ctx context.Context, dcID int, stream net.Conn, userName string) error {
+func (s *Server) relayBackToDC(ctx context.Context, meta relaypkg.Meta, stream net.Conn, userName string) error {
 	cfg := s.rt.Snapshot()
-	dcConn, err := s.dialDC(ctx, cfg, dcID, "")
+	remote := formatClientRemote(meta.ClientIP, meta.ClientPort)
+	dcConn, err := s.dialDC(ctx, cfg, meta.DCID, remote)
 	if err != nil {
-		slog.Warn("relay back: не удалось подключиться к DC", "dc", dcID, "middle_proxy", cfg.MTProto.UseMiddleProxy, "err", err)
+		slog.Warn("relay back: не удалось подключиться к DC", "dc", meta.DCID, "middle_proxy", cfg.MTProto.UseMiddleProxy, "client", remote, "err", err)
 		return err
 	}
 	defer dcConn.Close()
 
 	s.rt.Stats.OnConnect(userName)
 	defer s.rt.Stats.OnDisconnect(userName)
-	slog.Info("relay back подключён", "user", userName, "dc", dcID)
+	slog.Info("relay back подключён", "user", userName, "dc", meta.DCID, "client", remote)
 
 	up, down := pipeTraffic(stream, dcConn)
 	s.rt.Stats.AddTraffic(userName, up, down)
@@ -433,6 +435,16 @@ func (s *Server) relayBackToDC(ctx context.Context, dcID int, stream net.Conn, u
 		s.metrics.RecordTraffic(up, down)
 	}
 	return nil
+}
+
+func formatClientRemote(ip string, port int) string {
+	if ip == "" || ip == "0.0.0.0" {
+		return ""
+	}
+	if port <= 0 {
+		return ip
+	}
+	return net.JoinHostPort(ip, strconv.Itoa(port))
 }
 
 func (s *Server) dialDirectDC(ctx context.Context, cfg config.Config, dcID int) (net.Conn, error) {

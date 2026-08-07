@@ -26,9 +26,12 @@ func TestRelayRoundTrip(t *testing.T) {
 	wg.Add(1)
 	go func() {
 		defer wg.Done()
-		_ = relay.ServeBack(ctx, ln, psk, func(ctx context.Context, dcID int, stream net.Conn) error {
-			if dcID != 2 {
-				t.Errorf("dcID = %d", dcID)
+		_ = relay.ServeBack(ctx, ln, psk, func(ctx context.Context, meta relay.Meta, stream net.Conn) error {
+			if meta.DCID != 2 {
+				t.Errorf("dcID = %d", meta.DCID)
+			}
+			if meta.ClientIP != "127.0.0.1" || meta.ClientPort != 12345 {
+				t.Errorf("client = %s:%d", meta.ClientIP, meta.ClientPort)
 			}
 			buf := make([]byte, 64)
 			n, err := stream.Read(buf)
@@ -41,7 +44,7 @@ func TestRelayRoundTrip(t *testing.T) {
 	}()
 
 	time.Sleep(50 * time.Millisecond)
-	conn, err := relay.DialFront(ctx, ln.Addr().String(), psk, 2)
+	conn, err := relay.DialFront(ctx, ln.Addr().String(), psk, 2, "127.0.0.1:12345")
 	if err != nil {
 		t.Fatal(err)
 	}

@@ -58,7 +58,7 @@ ufw allow from RU_FRONT_IP to any port 15443 proto tcp
 ## Протокол PHRP
 
 1. TCP connect Front→Back
-2. Handshake: `PHRP` + nonce(16) + HMAC-SHA256(psk, nonce)(32) + dcID(2)
+2. Handshake: `PHRP` + nonce(16) + HMAC-SHA256(psk, nonce)(32) + dcID(2) + clientIPv4(4) + clientPort(2)
 3. Фреймы: `[4 byte len][AES-GCM ciphertext]`
 
 ## Рекомендации
