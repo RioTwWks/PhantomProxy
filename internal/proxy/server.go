@@ -38,6 +38,12 @@ func New(rt *runtime.Runtime, ms *metrics.Server) *Server {
 
 // Serve запускает прослушивание до отмены контекста.
 func (s *Server) Serve(ctx context.Context) error {
+	cfg := s.rt.Snapshot()
+	if cfg.Relay.IsBack() {
+		slog.Info("режим relay back", "relay_addr", cfg.Relay.ListenAddr(), "users", len(s.rt.Users.Users()))
+		return s.serveRelayBack(ctx)
+	}
+
 	addr := s.rt.Snapshot().Addr()
 	ln, err := net.Listen("tcp", addr)
 	if err != nil {
@@ -48,15 +54,6 @@ func (s *Server) Serve(ctx context.Context) error {
 	s.lnMu.Unlock()
 
 	slog.Info("прокси слушает", "addr", addr, "users", len(s.rt.Users.Users()))
-
-	cfg := s.rt.Snapshot()
-	if cfg.Relay.IsBack() {
-		go func() {
-			if err := s.serveRelayBack(ctx); err != nil && ctx.Err() == nil {
-				slog.Error("relay back", "err", err)
-			}
-		}()
-	}
 
 	go func() {
 		<-ctx.Done()
