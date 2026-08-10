@@ -3,7 +3,6 @@ package middleproxy
 import (
 	"encoding/binary"
 	"fmt"
-	"io"
 	"log/slog"
 	"net"
 	"time"
@@ -38,6 +37,9 @@ func (c *intermediateConn) Write(p []byte) (int, error) {
 		if !ok {
 			break
 		}
+		if len(payload)%4 != 0 {
+			return 0, fmt.Errorf("middleproxy: padded intermediate payload %d не кратен 4", len(payload))
+		}
 		if _, err := c.Conn.Write(payload); err != nil {
 			return 0, err
 		}
@@ -48,22 +50,25 @@ func (c *intermediateConn) Write(p []byte) (int, error) {
 
 func (c *intermediateConn) Read(p []byte) (int, error) {
 	if len(c.readBuf) == 0 {
-		inner := make([]byte, 32*1024)
-		n, err := c.Conn.Read(inner)
+		inner, err := c.readOnePayload()
 		if err != nil {
 			return 0, err
 		}
-		if n == 0 {
-			return 0, io.EOF
-		}
-		frame := make([]byte, 4+n)
-		binary.LittleEndian.PutUint32(frame, uint32(n))
-		copy(frame[4:], inner[:n])
+		frame := make([]byte, 4+len(inner))
+		binary.LittleEndian.PutUint32(frame, uint32(len(inner)))
+		copy(frame[4:], inner)
 		c.readBuf = frame
 	}
 	n := copy(p, c.readBuf)
 	c.readBuf = c.readBuf[n:]
 	return n, nil
+}
+
+func (c *intermediateConn) readOnePayload() ([]byte, error) {
+	if pr, ok := c.Conn.(interface{ readPayload() ([]byte, error) }); ok {
+		return pr.readPayload()
+	}
+	return nil, fmt.Errorf("middleproxy: Conn не поддерживает readPayload")
 }
 
 func (c *intermediateConn) CloseWrite() error {
