@@ -85,19 +85,23 @@ func (c *proxyConn) sendPayload(payload []byte) error {
 	return nil
 }
 
-func (c *proxyConn) flushWriteBuf() {
+func (c *proxyConn) flushWriteBuf() error {
 	if len(c.writeBuf) == 0 {
-		return
+		return nil
 	}
 	pad := 4 - (len(c.writeBuf) % 4)
 	if pad < 4 {
 		c.writeBuf = append(c.writeBuf, make([]byte, pad)...)
 	}
-	_ = c.sendPayload(c.writeBuf)
+	err := c.sendPayload(c.writeBuf)
 	c.writeBuf = nil
+	return err
 }
 
 func (c *proxyConn) CloseWrite() error {
+	if err := c.flushWriteBuf(); err != nil {
+		slog.Debug("middleproxy: flush при CloseWrite", "err", err)
+	}
 	if tcp, ok := c.relay.raw.(*net.TCPConn); ok {
 		return tcp.CloseWrite()
 	}
@@ -105,7 +109,7 @@ func (c *proxyConn) CloseWrite() error {
 }
 
 func (c *proxyConn) Close() error {
-	c.flushWriteBuf()
+	_ = c.flushWriteBuf()
 	return c.relay.raw.Close()
 }
 
