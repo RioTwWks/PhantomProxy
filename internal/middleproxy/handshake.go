@@ -91,13 +91,13 @@ func dialEndpoint(ctx context.Context, ep Endpoint, opts DialOpts) (net.Conn, er
 		return nil, err
 	}
 
-	return newProxyConn(relay, proxyConnOpts{
+	return wrapIntermediate(newProxyConn(relay, proxyConnOpts{
 		ClientIP:   opts.ClientIP,
 		ClientPort: opts.ClientPort,
 		LocalIP:    localIP,
 		LocalPort:  localPort(tcp),
 		AdTag:      opts.AdTag,
-	}), nil
+	})), nil
 }
 
 type relayConn struct {

@@ -5,6 +5,7 @@ import (
 	"encoding/binary"
 	"fmt"
 	"io"
+	"log/slog"
 	"net"
 	"time"
 )
@@ -13,6 +14,7 @@ var (
 	rpcProxyReq  = []byte{0xee, 0xf1, 0xce, 0x36}
 	rpcProxyAns  = []byte{0x0d, 0xda, 0x03, 0x44}
 	rpcSimpleAck = []byte{0x9b, 0x40, 0xac, 0x3b}
+	rpcCloseConn = []byte{0x5d, 0x42, 0xcf, 0x1f}
 )
 
 type proxyConnOpts struct {
@@ -131,7 +133,10 @@ func parseProxyAns(frame []byte) ([]byte, error) {
 		return frame[16:], nil
 	case bytesEqual(frame[:4], rpcSimpleAck):
 		return nil, nil
+	case bytesEqual(frame[:4], rpcCloseConn):
+		return nil, io.EOF
 	default:
+		slog.Debug("middleproxy: неизвестный RPC-кадр", "tag", fmt.Sprintf("%02x%02x%02x%02x", frame[0], frame[1], frame[2], frame[3]))
 		return nil, nil
 	}
 }
