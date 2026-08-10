@@ -4,6 +4,7 @@ import (
 	"encoding/binary"
 	"fmt"
 	"io"
+	"log/slog"
 	"net"
 	"time"
 )
@@ -66,6 +67,9 @@ func (c *intermediateConn) Read(p []byte) (int, error) {
 }
 
 func (c *intermediateConn) CloseWrite() error {
+	if len(c.wbuf) > 0 {
+		slog.Debug("middleproxy: незавершённый padded intermediate при CloseWrite", "bytes", len(c.wbuf))
+	}
 	type halfCloser interface {
 		CloseWrite() error
 	}
