@@ -26,10 +26,9 @@ type proxyConnOpts struct {
 }
 
 type proxyConn struct {
-	relay    *relayConn
-	opts     proxyConnOpts
-	connID   [8]byte
-	writeBuf []byte
+	relay  *relayConn
+	opts   proxyConnOpts
+	connID [8]byte
 }
 
 func newProxyConn(relay *relayConn, opts proxyConnOpts) net.Conn {
@@ -38,20 +37,34 @@ func newProxyConn(relay *relayConn, opts proxyConnOpts) net.Conn {
 	return &proxyConn{relay: relay, opts: opts, connID: id}
 }
 
-func (c *proxyConn) Read(p []byte) (int, error) {
+// readPayload возвращает один полный payload из RPC_PROXY_ANS (атомарно для ME).
+func (c *proxyConn) readPayload() ([]byte, error) {
 	for len(c.relay.readBuf) == 0 {
 		frame, err := readFrame(c.relay.cbc, &c.relay.readSeq)
 		if err != nil {
-			return 0, err
+			return nil, err
 		}
 		data, err := parseProxyAns(frame)
 		if err != nil {
-			return 0, err
+			return nil, err
 		}
 		if data == nil {
 			continue
 		}
 		c.relay.readBuf = data
+	}
+	payload := c.relay.readBuf
+	c.relay.readBuf = nil
+	return payload, nil
+}
+
+func (c *proxyConn) Read(p []byte) (int, error) {
+	if len(c.relay.readBuf) == 0 {
+		payload, err := c.readPayload()
+		if err != nil {
+			return 0, err
+		}
+		c.relay.readBuf = payload
 	}
 	n := copy(p, c.relay.readBuf)
 	c.relay.readBuf = c.relay.readBuf[n:]
@@ -62,13 +75,11 @@ func (c *proxyConn) Write(p []byte) (int, error) {
 	if len(p) == 0 {
 		return 0, nil
 	}
-	c.writeBuf = append(c.writeBuf, p...)
-	for len(c.writeBuf) >= 4 {
-		chunkLen := len(c.writeBuf) - (len(c.writeBuf) % 4)
-		if err := c.sendPayload(c.writeBuf[:chunkLen]); err != nil {
-			return 0, err
-		}
-		c.writeBuf = c.writeBuf[chunkLen:]
+	if len(p)%4 != 0 {
+		return 0, fmt.Errorf("middleproxy: payload %d не кратен 4", len(p))
+	}
+	if err := c.sendPayload(p); err != nil {
+		return 0, err
 	}
 	return len(p), nil
 }
@@ -85,23 +96,7 @@ func (c *proxyConn) sendPayload(payload []byte) error {
 	return nil
 }
 
-func (c *proxyConn) flushWriteBuf() error {
-	if len(c.writeBuf) == 0 {
-		return nil
-	}
-	pad := 4 - (len(c.writeBuf) % 4)
-	if pad < 4 {
-		c.writeBuf = append(c.writeBuf, make([]byte, pad)...)
-	}
-	err := c.sendPayload(c.writeBuf)
-	c.writeBuf = nil
-	return err
-}
-
 func (c *proxyConn) CloseWrite() error {
-	if err := c.flushWriteBuf(); err != nil {
-		slog.Debug("middleproxy: flush при CloseWrite", "err", err)
-	}
 	if tcp, ok := c.relay.raw.(*net.TCPConn); ok {
 		return tcp.CloseWrite()
 	}
@@ -109,7 +104,6 @@ func (c *proxyConn) CloseWrite() error {
 }
 
 func (c *proxyConn) Close() error {
-	_ = c.flushWriteBuf()
 	return c.relay.raw.Close()
 }
 

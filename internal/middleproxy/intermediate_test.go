@@ -2,6 +2,7 @@ package middleproxy
 
 import (
 	"bytes"
+	"io"
 	"net"
 	"testing"
 	"time"
@@ -64,6 +65,15 @@ func (c *captureConn) Read(p []byte) (int, error) {
 func (c *captureConn) Write(p []byte) (int, error) {
 	c.data = append(c.data, p...)
 	return len(p), nil
+}
+
+func (c *captureConn) readPayload() ([]byte, error) {
+	if len(c.readData) == 0 {
+		return nil, io.EOF
+	}
+	out := c.readData
+	c.readData = nil
+	return out, nil
 }
 
 func (c *captureConn) Close() error                       { return nil }
