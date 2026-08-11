@@ -61,6 +61,11 @@ if [[ ! -f "$CONFIG_DIR/config.yaml" ]]; then
 fi
 install -m 755 "$ROOT/deploy/uninstall.sh" "$INSTALL_DIR/uninstall.sh"
 
+# Сервис работает от пользователя phantom — ему нужны чтение и запись конфига (PersistUsers).
+chown -R phantom:phantom "$CONFIG_DIR"
+chmod 750 "$CONFIG_DIR"
+chmod 600 "$CONFIG_DIR/config.yaml"
+
 echo "==> systemd unit"
 sed "s|/opt/phantomproxy|$INSTALL_DIR|g; s|/etc/phantomproxy|$CONFIG_DIR|g; s|phantom-proxy|$SERVICE_NAME|g" \
   "$ROOT/deploy/phantom-proxy.service" > "$UNIT_PATH"

@@ -87,6 +87,40 @@ curl -s http://127.0.0.1:8081/api/v1/health
 curl -s http://127.0.0.1:9090/metrics | head
 ```
 
+## Устранение неполадок
+
+### Сервис падает с `status=1/FAILURE` сразу после старта
+
+Чаще всего — нет доступа к конфигу у пользователя `phantom`:
+
+```bash
+sudo journalctl -u phantom-proxy -n 20 --no-pager
+# permission denied / ошибка загрузки конфигурации
+```
+
+Исправление (или переустановка `make install-service`):
+
+```bash
+sudo chown -R phantom:phantom /etc/phantomproxy
+sudo chmod 750 /etc/phantomproxy
+sudo chmod 600 /etc/phantomproxy/config.yaml
+sudo systemctl restart phantom-proxy
+```
+
+Проверка вручную:
+
+```bash
+sudo -u phantom /opt/phantomproxy/telegram-proxy run -config /etc/phantomproxy/config.yaml
+```
+
+### Порт занят
+
+```bash
+sudo ss -tlnp | grep -E '8443|8081|9090'
+```
+
+Измени `listen.port`, `management.port` или `metrics.port` в `/etc/phantomproxy/config.yaml`.
+
 ## Docker Compose
 
 ```bash
