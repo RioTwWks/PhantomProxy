@@ -39,10 +39,19 @@ ufw allow from RU_FRONT_IP to any port 15443 proto tcp
 # Сгенерируй секрет с правдоподобным SNI
 ./telegram-proxy generate microsoft.com
 
-# Вставь secret в configs/config.ru.yaml
-# relay.peer_addr: "EU_SERVER_IP:15443"
-./telegram-proxy run -config configs/config.ru.yaml
+# Скопируй и отредактируй конфиг (замени ВСЕ placeholder-строки!)
+sudo cp configs/config.ru.yaml /etc/phantomproxy/config.yaml
+sudo nano /etc/phantomproxy/config.yaml
+# secret, relay.peer_addr, management.public_server, management.token
+
+# Проверка перед запуском
+./telegram-proxy check -config /etc/phantomproxy/config.yaml
+
+# Установка сервиса
+make install-service
 ```
+
+> **Важно:** если оставить `eeREPLACE_WITH_GENERATED_SECRET` или `EU_SERVER_IP` — systemd unit будет падать с `status=1/FAILURE`. Ошибка видна в `journalctl`, не в `systemctl status`.
 
 В Telegram: **Настройки → Прокси → MTProto** — IP RU Front, порт **15443**, секрет `ee...`.
 

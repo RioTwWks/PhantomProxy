@@ -29,6 +29,9 @@ func main() {
 		case "run":
 			runServer(parseRunFlags(os.Args[2:]))
 			return
+		case "check":
+			cmdCheck(os.Args[2:])
+			return
 		case "generate":
 			cmdGenerate(os.Args[2:])
 			return
@@ -91,10 +94,27 @@ func printUsage() {
 
 Использование:
   telegram-proxy run [-config path] [-log-level debug|info]   Запустить прокси
+  telegram-proxy check [-config path]  Проверить конфигурацию
   telegram-proxy generate <host>      Сгенерировать ee/dd секреты
   telegram-proxy uninstall [--purge]  Удалить systemd-сервис
   telegram-proxy version              Версия
   telegram-proxy -config path         Запуск (legacy)`)
+}
+
+func cmdCheck(args []string) {
+	fs := flag.NewFlagSet("check", flag.ExitOnError)
+	cfgPath := fs.String("config", "configs/config.yaml", "путь к конфигурации")
+	_ = fs.Parse(args)
+
+	setupLogging("error")
+
+	cfg, users, err := config.Load(*cfgPath)
+	if err != nil {
+		slog.Error("конфигурация невалидна", "err", err)
+		os.Exit(1)
+	}
+
+	fmt.Printf("OK listen=%s users=%d relay=%s\n", cfg.Addr(), len(users.Users()), cfg.Relay.Mode)
 }
 
 func cmdGenerate(args []string) {

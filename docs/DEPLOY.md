@@ -89,16 +89,27 @@ curl -s http://127.0.0.1:9090/metrics | head
 
 ## Устранение неполадок
 
-### Сервис падает с `status=1/FAILURE` сразу после старта
-
-Чаще всего — нет доступа к конфигу у пользователя `phantom`:
+Запусти на проблемном сервере:
 
 ```bash
-sudo journalctl -u phantom-proxy -n 20 --no-pager
-# permission denied / ошибка загрузки конфигурации
+sudo bash /opt/phantomproxy/diagnose.sh
+# или из репозитория:
+sudo bash deploy/diagnose.sh
 ```
 
-Исправление (или переустановка `make install-service`):
+Скрипт проверит права, валидность конфига, занятость портов и выведет логи systemd.
+
+### Сервис падает с `status=1/FAILURE` сразу после старта
+
+**1. Посмотри реальную ошибку** (в `systemctl status` её нет — только код выхода):
+
+```bash
+sudo journalctl -u phantom-proxy -n 30 --no-pager
+# или
+sudo -u phantom /opt/phantomproxy/telegram-proxy check -config /etc/phantomproxy/config.yaml
+```
+
+**2. Нет доступа к конфигу** (`permission denied`):
 
 ```bash
 sudo chown -R phantom:phantom /etc/phantomproxy
@@ -107,19 +118,35 @@ sudo chmod 600 /etc/phantomproxy/config.yaml
 sudo systemctl restart phantom-proxy
 ```
 
+**3. Невалидный конфиг на RU Front** (частый случай при `configs/config.ru.yaml`):
+
+Если в `/etc/phantomproxy/config.yaml` остались placeholder-строки (`REPLACE_WITH`, `EU_SERVER_IP`, `CHANGE-ME`), сервис падает с `ошибка загрузки конфигурации`.
+
+```bash
+# сгенерируй секрет
+./telegram-proxy generate microsoft.com
+# вставь ee_secret в mtproto.users[].secret
+# укажи relay.peer_addr, management.public_server
+sudo nano /etc/phantomproxy/config.yaml
+sudo -u phantom /opt/phantomproxy/telegram-proxy check -config /etc/phantomproxy/config.yaml
+sudo systemctl restart phantom-proxy
+```
+
+См. также `docs/RELAY.md`.
+
+**4. Порт занят** (`address already in use`):
+
+```bash
+sudo ss -tlnp | grep -E '8443|15443|8081|9090'
+```
+
+На RU Front обычно `listen.port: 15443` (или `443`). На EU Back — `relay.listen_port: 15443` плюс `management`/`metrics` на `8081`/`9090`. Если на сервере уже крутится Prometheus — смени `metrics.port` или отключи (`port: 0`).
+
 Проверка вручную:
 
 ```bash
 sudo -u phantom /opt/phantomproxy/telegram-proxy run -config /etc/phantomproxy/config.yaml
 ```
-
-### Порт занят
-
-```bash
-sudo ss -tlnp | grep -E '8443|8081|9090'
-```
-
-Измени `listen.port`, `management.port` или `metrics.port` в `/etc/phantomproxy/config.yaml`.
 
 ## Docker Compose
 
