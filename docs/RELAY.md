@@ -21,10 +21,9 @@ openssl rand -hex 32
 ### 2. EU Back
 
 ```bash
-# configs/config.eu.yaml — relay.mode: back, relay.listen_port: 15443
-# middle_proxy_nat_ip: публичный IPv4 EU-сервера
-make build
-./telegram-proxy run -config configs/config.eu.yaml
+# Отредактируй configs/config.eu.yaml: relay.psk, middle_proxy_nat_ip, ad_tag
+make install-service-eu
+# или: sudo bash deploy/install.sh --no-build --profile eu
 ```
 
 Открой порт **15443** только для IP RU Front (firewall):
@@ -39,19 +38,19 @@ ufw allow from RU_FRONT_IP to any port 15443 proto tcp
 # Сгенерируй секрет с правдоподобным SNI
 ./telegram-proxy generate microsoft.com
 
-# Скопируй и отредактируй конфиг (замени ВСЕ placeholder-строки!)
-sudo cp configs/config.ru.yaml /etc/phantomproxy/config.yaml
+# Установка с профилем RU (configs/config.ru.yaml → /etc/phantomproxy/config.yaml)
+make install-service-ru
+# или: sudo bash deploy/install.sh --no-build --profile ru
+
+# Замени placeholder'ы в установленном конфиге
 sudo nano /etc/phantomproxy/config.yaml
 # secret, relay.peer_addr, management.public_server, management.token
 
-# Проверка перед запуском
-./telegram-proxy check -config /etc/phantomproxy/config.yaml
-
-# Установка сервиса
-make install-service
+sudo -u phantom /opt/phantomproxy/telegram-proxy check -config /etc/phantomproxy/config.yaml
+sudo systemctl restart phantom-proxy
 ```
 
-> **Важно:** если оставить `eeREPLACE_WITH_GENERATED_SECRET` или `EU_SERVER_IP` — systemd unit будет падать с `status=1/FAILURE`. Ошибка видна в `journalctl`, не в `systemctl status`.
+> **Важно:** `make install-service` без профиля ставит `config.yaml` с портом **8443** — на RU это не то, что нужно для relay, и порт может быть уже занят (`bind: address already in use`).
 
 В Telegram: **Настройки → Прокси → MTProto** — IP RU Front, порт **15443**, секрет `ee...`.
 

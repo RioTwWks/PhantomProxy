@@ -3,11 +3,23 @@
 ## Быстрая установка (одна команда)
 
 ```bash
-make install-service
-# или: make build && sudo bash deploy/install.sh --no-build
+make install-service              # одиночный прокси → configs/config.yaml
+make install-service-ru           # RU Front (relay) → configs/config.ru.yaml
+make install-service-eu           # EU Back (relay) → configs/config.eu.yaml
+# или: make build && sudo bash deploy/install.sh --no-build --profile ru
 ```
 
 `make install-service` сначала собирает бинарь **от твоего пользователя** (где `go` в PATH), затем вызывает `sudo` только для установки.
+
+> **Relay RU→EU:** на каждом сервере свой профиль. Не используй `make install-service` на обоих — он кладёт дефолтный `config.yaml` (порт **8443**). Для RU Front нужен `config.ru.yaml` (порт **15443**), для EU Back — `config.eu.yaml`.
+
+Если конфиг уже установлен с неправильным профилем:
+
+```bash
+sudo bash deploy/install.sh --no-build --profile ru --force-config
+# отредактируй placeholder'ы, затем:
+sudo systemctl restart phantom-proxy
+```
 
 Если запускаешь `sudo bash deploy/install.sh` напрямую, скрипт попытается собрать от пользователя, вызвавшего `sudo` (`$SUDO_USER`). Если Go не установлен — сначала `make build`, потом `sudo bash deploy/install.sh --no-build`.
 

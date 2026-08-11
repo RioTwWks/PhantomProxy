@@ -1,4 +1,4 @@
-.PHONY: build test integration run clean fmt lint install-service uninstall-service fuzz ci
+.PHONY: build test integration run clean fmt lint install-service install-service-ru install-service-eu uninstall-service fuzz ci
 
 BINARY_NAME=telegram-proxy
 GO ?= go
@@ -34,6 +34,12 @@ fuzz:
 
 install-service: build
 	sudo bash deploy/install.sh --no-build
+
+install-service-ru: build
+	sudo bash deploy/install.sh --no-build --profile ru
+
+install-service-eu: build
+	sudo bash deploy/install.sh --no-build --profile eu
 
 uninstall-service:
 	sudo bash deploy/uninstall.sh
