@@ -8,21 +8,74 @@ INSTALL_DIR="${PHANTOM_INSTALL_DIR:-/opt/phantomproxy}"
 CONFIG_DIR="${PHANTOM_CONFIG_DIR:-/etc/phantomproxy}"
 UNIT_PATH="/etc/systemd/system/${SERVICE_NAME}.service"
 SKIP_BUILD=0
+FORCE_CONFIG=0
+SOURCE_CONFIG="$ROOT/configs/config.yaml"
 
-for arg in "$@"; do
-  case "$arg" in
-    --no-build|--skip-build) SKIP_BUILD=1 ;;
-    -h|--help)
-      echo "Использование: sudo bash deploy/install.sh [--no-build]"
-      echo "  --no-build  не собирать бинарь (ожидается готовый telegram-proxy в корне репо)"
-      exit 0
+usage() {
+  cat <<EOF
+Использование: sudo bash deploy/install.sh [опции]
+
+Опции:
+  --no-build, --skip-build   не собирать бинарь (ожидается telegram-proxy в корне репо)
+  --profile <default|ru|eu>  шаблон конфига (по умолчанию: default → configs/config.yaml)
+  --config <path>            свой файл конфига вместо шаблона
+  --force-config             перезаписать /etc/phantomproxy/config.yaml
+
+Примеры:
+  make install-service              # одиночный прокси (configs/config.yaml)
+  make install-service-ru           # RU Front (configs/config.ru.yaml)
+  make install-service-eu           # EU Back (configs/config.eu.yaml)
+  sudo bash deploy/install.sh --no-build --profile ru --force-config
+EOF
+}
+
+resolve_profile() {
+  case "$1" in
+    default) SOURCE_CONFIG="$ROOT/configs/config.yaml" ;;
+    ru) SOURCE_CONFIG="$ROOT/configs/config.ru.yaml" ;;
+    eu) SOURCE_CONFIG="$ROOT/configs/config.eu.yaml" ;;
+    *)
+      echo "Неизвестный профиль: $1 (допустимо: default, ru, eu)" >&2
+      exit 1
       ;;
   esac
+}
+
+while [[ $# -gt 0 ]]; do
+  case "$1" in
+    --no-build|--skip-build) SKIP_BUILD=1 ;;
+    --force-config) FORCE_CONFIG=1 ;;
+    --profile)
+      shift
+      [[ $# -gt 0 ]] || { echo "Ожидается аргумент после --profile" >&2; exit 1; }
+      resolve_profile "$1"
+      ;;
+    --config)
+      shift
+      [[ $# -gt 0 ]] || { echo "Ожидается путь после --config" >&2; exit 1; }
+      SOURCE_CONFIG="$1"
+      ;;
+    -h|--help)
+      usage
+      exit 0
+      ;;
+    *)
+      echo "Неизвестный аргумент: $1" >&2
+      usage >&2
+      exit 1
+      ;;
+  esac
+  shift
 done
 [[ "${PHANTOM_SKIP_BUILD:-}" == "1" ]] && SKIP_BUILD=1
 
 if [[ "${EUID:-0}" -ne 0 ]]; then
   echo "Запусти: sudo bash $0" >&2
+  exit 1
+fi
+
+if [[ ! -f "$SOURCE_CONFIG" ]]; then
+  echo "Файл конфигурации не найден: $SOURCE_CONFIG" >&2
   exit 1
 fi
 
@@ -56,8 +109,15 @@ echo "==> Установка файлов"
 install -d -m 755 "$INSTALL_DIR"
 install -d -m 750 "$CONFIG_DIR"
 install -m 755 "$ROOT/telegram-proxy" "$INSTALL_DIR/"
-if [[ ! -f "$CONFIG_DIR/config.yaml" ]]; then
-  install -m 600 "$ROOT/configs/config.yaml" "$CONFIG_DIR/config.yaml"
+if [[ ! -f "$CONFIG_DIR/config.yaml" ]] || [[ "$FORCE_CONFIG" -eq 1 ]]; then
+  if [[ -f "$CONFIG_DIR/config.yaml" ]]; then
+    echo "==> Перезапись конфигурации из $SOURCE_CONFIG"
+  else
+    echo "==> Конфигурация из $SOURCE_CONFIG"
+  fi
+  install -m 600 "$SOURCE_CONFIG" "$CONFIG_DIR/config.yaml"
+elif [[ -f "$CONFIG_DIR/config.yaml" ]]; then
+  echo "==> Конфиг уже есть: $CONFIG_DIR/config.yaml (не перезаписываем; --force-config чтобы заменить)" >&2
 fi
 install -m 755 "$ROOT/deploy/uninstall.sh" "$INSTALL_DIR/uninstall.sh"
 install -m 755 "$ROOT/deploy/diagnose.sh" "$INSTALL_DIR/diagnose.sh"
