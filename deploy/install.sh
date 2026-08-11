@@ -60,11 +60,25 @@ if [[ ! -f "$CONFIG_DIR/config.yaml" ]]; then
   install -m 600 "$ROOT/configs/config.yaml" "$CONFIG_DIR/config.yaml"
 fi
 install -m 755 "$ROOT/deploy/uninstall.sh" "$INSTALL_DIR/uninstall.sh"
+install -m 755 "$ROOT/deploy/diagnose.sh" "$INSTALL_DIR/diagnose.sh"
 
 # Сервис работает от пользователя phantom — ему нужны чтение и запись конфига (PersistUsers).
 chown -R phantom:phantom "$CONFIG_DIR"
 chmod 750 "$CONFIG_DIR"
 chmod 600 "$CONFIG_DIR/config.yaml"
+
+echo "==> Проверка конфигурации"
+if ! sudo -u phantom "$INSTALL_DIR/telegram-proxy" check -config "$CONFIG_DIR/config.yaml"; then
+  echo "" >&2
+  echo "ВНИМАНИЕ: конфигурация невалидна — сервис не запустится." >&2
+  if grep -qE 'REPLACE_WITH|EU_SERVER_IP|RU_SERVER_IP|CHANGE-ME|EU_PUBLIC_IPV4' "$CONFIG_DIR/config.yaml" 2>/dev/null; then
+    echo "В конфиге остались placeholder-значения из configs/config.ru.yaml." >&2
+    echo "Сгенерируй секрет: ./telegram-proxy generate microsoft.com" >&2
+    echo "Затем отредактируй $CONFIG_DIR/config.yaml (docs/RELAY.md)." >&2
+  fi
+  echo "Диагностика: sudo bash $INSTALL_DIR/diagnose.sh" >&2
+  echo "" >&2
+fi
 
 echo "==> systemd unit"
 sed "s|/opt/phantomproxy|$INSTALL_DIR|g; s|/etc/phantomproxy|$CONFIG_DIR|g; s|phantom-proxy|$SERVICE_NAME|g" \
@@ -80,3 +94,6 @@ echo "  curl -s http://127.0.0.1:8081/api/v1/health"
 echo ""
 echo "Удаление одной командой:"
 echo "  sudo bash $INSTALL_DIR/uninstall.sh"
+echo ""
+echo "Диагностика при сбое:"
+echo "  sudo bash $INSTALL_DIR/diagnose.sh"
