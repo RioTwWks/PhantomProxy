@@ -47,7 +47,7 @@ func TestAcceptBackLegacyHandshake(t *testing.T) {
 	handshake := append([]byte("PHRP"), nonce...)
 	handshake = append(handshake, tag...)
 	var dcBuf [2]byte
-	binary.BigEndian.PutUint16(dcBuf[:], 2)
+	binary.BigEndian.PutUint16(dcBuf[:], uint16(int16(2)))
 	handshake = append(handshake, dcBuf[:]...)
 	if len(handshake) != handshakeBaseLen {
 		t.Fatalf("len %d", len(handshake))

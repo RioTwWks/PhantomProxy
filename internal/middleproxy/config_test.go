@@ -25,6 +25,13 @@ func TestResolveEndpoints(t *testing.T) {
 	if len(eps) == 0 {
 		t.Fatal("нет endpoints для DC2")
 	}
+	media := ResolveEndpoints(-2)
+	if len(media) == 0 {
+		t.Fatal("нет endpoints для MEDIA DC2")
+	}
+	if ResolveEndpoints(65534) != nil {
+		t.Fatal("65534 не должен резолвиться как middle proxy DC")
+	}
 }
 
 func TestCRC32(t *testing.T) {

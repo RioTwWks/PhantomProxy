@@ -62,7 +62,8 @@ func DialFront(ctx context.Context, peerAddr string, psk []byte, dcID int, clien
 	handshake = append(handshake, nonce...)
 	handshake = append(handshake, tag...)
 	var dcBuf [2]byte
-	binary.BigEndian.PutUint16(dcBuf[:], uint16(dcID))
+	// PHRP dcID — signed int16 (как в obfuscated2 / TDLib: -2 = MEDIA DC2).
+	binary.BigEndian.PutUint16(dcBuf[:], uint16(int16(dcID)))
 	handshake = append(handshake, dcBuf[:]...)
 
 	clientIP, clientPort := parseClientAddr(clientAddr)
@@ -142,7 +143,7 @@ func acceptBack(conn net.Conn, psk []byte) (int, net.Conn, Meta, error) {
 	if !hmac.Equal(tag, expected) {
 		return 0, nil, Meta{}, errBadAuth
 	}
-	dcID := int(binary.BigEndian.Uint16(hdr[52:54]))
+	dcID := int(int16(binary.BigEndian.Uint16(hdr[52:54])))
 
 	meta := Meta{}
 	_ = conn.SetReadDeadline(time.Now().Add(200 * time.Millisecond))
