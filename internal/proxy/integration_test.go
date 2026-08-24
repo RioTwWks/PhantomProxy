@@ -129,6 +129,29 @@ func TestIntegrationDynamicRecordSizes(t *testing.T) {
 	assertRoundTrip(t, conn, large)
 }
 
+func TestIntegrationLargeDownloadNoCorruption(t *testing.T) {
+	// Регресс: decoy/DRS не должны портить большой download (message_key mismatch).
+	cfg := baseConfig()
+	cfg.TLS.RecordMinChunk = 256
+	cfg.TLS.RecordMaxChunk = 1369
+	cfg.TLS.EnableDRS = true
+	cfg.TLS.EnableSplitTLS = true
+	cfg.TLS.DecoyPermille = 50 // игнорируется кодом, но конфиг как у старого RU
+
+	addr, cancel := startTestProxy(t, cfg)
+	defer cancel()
+
+	secret, _ := mtproto.ParseSecret(secretAlice)
+	conn := dialClient(t, secret, addr, cfg.RecordPolicy())
+	defer conn.Close()
+
+	large := make([]byte, 256*1024)
+	for i := range large {
+		large[i] = byte((i*17 + 3) % 251)
+	}
+	assertRoundTrip(t, conn, large)
+}
+
 func TestIntegrationJA3Fingerprint(t *testing.T) {
 	secret, err := mtproto.ParseSecret(secretAlice)
 	if err != nil {

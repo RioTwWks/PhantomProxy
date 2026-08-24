@@ -5,7 +5,10 @@ import (
 	"encoding/binary"
 	"fmt"
 	"io"
+	"log/slog"
 	"net"
+	"sync"
+	"sync/atomic"
 	"time"
 )
 
@@ -15,11 +18,15 @@ const (
 	drsRampBytes    = 128 * 1024
 )
 
+// decoyIgnoredWarned — один раз предупреждаем, что decoy несовместим с Fake TLS MTProto.
+var decoyIgnoredWarned atomic.Bool
+
 // RecordConn снимает/добавляет TLS Application Data записи поверх TCP.
 type RecordConn struct {
 	net.Conn
 	readBuf        bytes.Buffer
 	Policy         RecordPolicy
+	writeMu        sync.Mutex
 	recordsWritten int
 	bytesWritten   int64
 	splitDone      bool
@@ -57,12 +64,22 @@ func (c *RecordConn) Read(b []byte) (int, error) {
 
 // Write оборачивает данные в TLS Application Data записи с динамическим размером.
 func (c *RecordConn) Write(b []byte) (int, error) {
+	c.writeMu.Lock()
+	defer c.writeMu.Unlock()
+
 	policy := c.Policy.Normalize()
 	total := 0
 
+	// Decoy Application Data нельзя вставлять в поток: клиент (TDLib) кормит
+	// все 0x17 в obfuscated2 → AES-CTR desync → message_key mismatch.
+	if policy.DecoyPermille > 0 && decoyIgnoredWarned.CompareAndSwap(false, true) {
+		slog.Warn("tls.decoy_permille игнорируется: decoy Application Data ломает Fake TLS MTProto",
+			"decoy_permille", policy.DecoyPermille)
+	}
+
 	// Split-TLS: первая запись — 1 байт
 	if policy.EnableSplitTLS && !c.splitDone && len(b) > 0 {
-		n, err := c.writeRecord(b[:1])
+		n, err := c.writeRecordLocked(b[:1])
 		if err != nil {
 			return total, err
 		}
@@ -72,11 +89,6 @@ func (c *RecordConn) Write(b []byte) (int, error) {
 	}
 
 	for len(b) > 0 {
-		if policy.DecoyPermille > 0 && policy.DecoyPermille > randInt(1000) {
-			if err := c.writeDecoyRecord(); err != nil {
-				return total, err
-			}
-		}
 		if policy.RecordJitterMs > 0 {
 			delay := time.Duration(randInt(policy.RecordJitterMs+1)) * time.Millisecond
 			time.Sleep(delay)
@@ -84,7 +96,7 @@ func (c *RecordConn) Write(b []byte) (int, error) {
 		chunkSize := c.outboundChunkSize(policy, len(b))
 		chunk := b[:chunkSize]
 
-		n, err := c.writeRecord(chunk)
+		n, err := c.writeRecordLocked(chunk)
 		if err != nil {
 			return total, err
 		}
@@ -113,6 +125,15 @@ func (c *RecordConn) outboundChunkSize(policy RecordPolicy, remaining int) int {
 }
 
 func (c *RecordConn) writeRecord(chunk []byte) (int, error) {
+	c.writeMu.Lock()
+	defer c.writeMu.Unlock()
+	return c.writeRecordLocked(chunk)
+}
+
+func (c *RecordConn) writeRecordLocked(chunk []byte) (int, error) {
+	if len(chunk) > maxRecordPayload {
+		return 0, fmt.Errorf("faketls: TLS record payload %d > %d", len(chunk), maxRecordPayload)
+	}
 	var rec [5]byte
 	rec[0] = recordApplicationData
 	rec[1] = 0x03
@@ -130,17 +151,18 @@ func (c *RecordConn) writeRecord(chunk []byte) (int, error) {
 	return len(chunk), nil
 }
 
-func (c *RecordConn) writeDecoyRecord() error {
-	size := 16 + randInt(48)
-	payload := make([]byte, size)
-	for i := range payload {
-		payload[i] = byte(randInt(256))
+// CloseWrite пробрасывает half-close на нижележащий TCP, если доступен.
+func (c *RecordConn) CloseWrite() error {
+	type halfCloser interface {
+		CloseWrite() error
 	}
-	_, err := c.writeRecord(payload)
-	if err == nil {
-		c.decoySent++
+	if hc, ok := c.Conn.(halfCloser); ok {
+		return hc.CloseWrite()
 	}
-	return err
+	if tcp, ok := c.Conn.(*net.TCPConn); ok {
+		return tcp.CloseWrite()
+	}
+	return nil
 }
 
 func (p RecordPolicy) chunkSizeWithMax(remaining, maxChunk int) int {

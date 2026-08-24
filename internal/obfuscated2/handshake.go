@@ -35,6 +35,12 @@ func (c *Conn) Write(b []byte) (int, error) {
 }
 
 func (c *Conn) CloseWrite() error {
+	type halfCloser interface {
+		CloseWrite() error
+	}
+	if hc, ok := c.Conn.(halfCloser); ok {
+		return hc.CloseWrite()
+	}
 	if tcp, ok := c.Conn.(*net.TCPConn); ok {
 		return tcp.CloseWrite()
 	}

@@ -41,8 +41,9 @@ tls:
     - yandex.ru
     - cloudflare.com
   sni_rotation: per_connection
-  record_jitter_ms: 30
-  decoy_permille: 20
+  record_jitter_ms: 0
+  # decoy Application Data ломает obfuscated2 (message_key mismatch) — всегда 0
+  decoy_permille: 0
   post_handshake_delay_ms: 120
   client_hello_policy: log
 

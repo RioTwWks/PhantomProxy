@@ -116,6 +116,8 @@ ee + <16 байт ключа> + <домен маскировки>
 | `allowed_ja4` | []string | `[]` | Белый список JA4-отпечатков; пусто — все разрешены |
 | `enable_drs` | bool | `true` | Dynamic Record Sizing |
 | `enable_split_tls` | bool | `true` | Split-TLS (первая запись 1 байт) |
+| `record_jitter_ms` | int | `0` | Случайная задержка перед TLS-записью (мс); не влияет на целостность |
+| `decoy_permille` | int | `0` | **Игнорируется.** Decoy Application Data ломает obfuscated2 (message_key mismatch у TDLib) |
 | `fingerprint_pool` | []string | см. ниже | Пул имён TLS-отпечатков (utls) |
 | `fingerprint_rotation` | string | `per_connection` | `per_connection`, `time_based`, `adaptive` |
 | `fingerprint_rotation_interval_sec` | int | `300` | Интервал для `time_based` (сек) |

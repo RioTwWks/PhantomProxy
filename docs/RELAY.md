@@ -75,7 +75,7 @@ sudo systemctl restart phantom-proxy
 
 ## Рекомендации
 
-- RU Front: `fallback.honeypot: true`, `fronting.action: splice`
+- RU Front: `fallback.honeypot: true`, `fronting.action: splice`, **`tls.decoy_permille: 0`** (decoy Application Data ломает media download)
 - EU Back: `use_middle_proxy: true` + `ad_tag` от @MTProxybot
 - Мониторинг: `phantom_tls_reject_reason_total`, `phantom_probe_requests_total`
 
