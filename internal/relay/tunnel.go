@@ -13,6 +13,7 @@ import (
 	"io"
 	"log/slog"
 	"net"
+	"sync"
 	"time"
 )
 
@@ -181,8 +182,10 @@ func parseClientAddr(remote string) (ip string, port int) {
 
 type frameConn struct {
 	net.Conn
-	aead cipher.AEAD
-	rbuf []byte
+	aead    cipher.AEAD
+	rbuf    []byte
+	writeMu sync.Mutex
+	nonce   uint64 // монотонный счётчик для GCM (не random — без коллизий)
 }
 
 func newAEAD(psk, nonce []byte) (cipher.AEAD, error) {
@@ -215,6 +218,9 @@ func (c *frameConn) Read(b []byte) (int, error) {
 		if _, err := io.ReadFull(c.Conn, frame); err != nil {
 			return 0, err
 		}
+		if len(frame) < 12 {
+			return 0, errFrameSize
+		}
 		plain, err := c.aead.Open(nil, frame[:12], frame[12:], nil)
 		if err != nil {
 			return 0, err
@@ -227,13 +233,16 @@ func (c *frameConn) Read(b []byte) (int, error) {
 }
 
 func (c *frameConn) Write(b []byte) (int, error) {
+	c.writeMu.Lock()
+	defer c.writeMu.Unlock()
+
 	total := 0
 	for len(b) > 0 {
 		chunk := b
 		if len(chunk) > maxFrameLen-32 {
 			chunk = b[:maxFrameLen-32]
 		}
-		if err := c.writeFrame(chunk); err != nil {
+		if err := c.writeFrameLocked(chunk); err != nil {
 			return total, err
 		}
 		total += len(chunk)
@@ -249,17 +258,17 @@ func (c *frameConn) CloseWrite() error {
 	return nil
 }
 
-func (c *frameConn) writeFrame(payload []byte) error {
+func (c *frameConn) writeFrameLocked(payload []byte) error {
+	c.nonce++
 	nonce := make([]byte, 12)
-	if _, err := rand.Read(nonce); err != nil {
-		return err
-	}
+	binary.BigEndian.PutUint64(nonce[4:], c.nonce)
 	sealed := c.aead.Seal(nonce, nonce, payload, nil)
 	var hdr [4]byte
 	binary.BigEndian.PutUint32(hdr[:], uint32(len(sealed)))
-	if _, err := c.Conn.Write(hdr[:]); err != nil {
-		return err
-	}
-	_, err := c.Conn.Write(sealed)
+	// Один Write: len + ciphertext, чтобы не перемешать кадры при конкуренции.
+	pkt := make([]byte, 4+len(sealed))
+	copy(pkt, hdr[:])
+	copy(pkt[4:], sealed)
+	_, err := c.Conn.Write(pkt)
 	return err
 }

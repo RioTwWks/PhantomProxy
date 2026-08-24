@@ -33,6 +33,20 @@ func (r *ReadRecorder) Snapshot() []byte {
 	return append([]byte(nil), r.capture.Bytes()...)
 }
 
+// CloseWrite пробрасывает half-close на TCP.
+func (r *ReadRecorder) CloseWrite() error {
+	if tcp, ok := r.Conn.(*net.TCPConn); ok {
+		return tcp.CloseWrite()
+	}
+	type halfCloser interface {
+		CloseWrite() error
+	}
+	if hc, ok := r.Conn.(halfCloser); ok {
+		return hc.CloseWrite()
+	}
+	return nil
+}
+
 // Prepend добавляет уже прочитанные байты (первый байт до recorder).
 func (r *ReadRecorder) Prepend(b []byte) {
 	if len(b) == 0 {

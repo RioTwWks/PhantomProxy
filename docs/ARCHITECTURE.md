@@ -71,6 +71,7 @@ Telegram Middle Proxy transport:
 - Генерация ServerHello с `utls`
 - `RecordPolicy` — случайная нарезка Application Data на TLS-записи
 - `NoiseParams` — padding в ServerHello
+- **`decoy_permille` игнорируется**: decoy Application Data ломает obfuscated2 у TDLib (`message_key mismatch`)
 
 ### `internal/user`
 
@@ -94,7 +95,9 @@ Thread-safe менеджер пользователей (`sync.RWMutex`):
 
 ### `internal/telegram`
 
-Резолв адреса Telegram DC. Если `mtproto.backend` пуст, используется встроенный список DC.
+Резолв адреса Telegram DC. Если `mtproto.backend` пуст, используется встроенный список:
+- `dc > 0` — main DC
+- `dc < 0` — MEDIA DC `|dc|` (отдельные media_only IP, не тот же host что main)
 
 ### `internal/fallback`
 

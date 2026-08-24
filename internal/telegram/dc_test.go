@@ -5,14 +5,14 @@ import "testing"
 func TestResolveAddrMainAndMedia(t *testing.T) {
 	cases := []struct {
 		dcID    int
-		wantSub string // подстрока ожидаемого адреса
+		wantSub string
 		wantErr bool
 	}{
 		{2, "149.154.167.51:443", false},
-		{-2, "149.154.167.51:443", false},
-		{-1, "149.154.175.50:443", false},
-		{0, "149.154.167.51:443", false}, // default DC2
-		{65534, "", true},                // unsigned -2; не валидный id
+		{-2, "149.154.167.151:443", false}, // media ≠ main
+		{-1, "149.154.175.52:443", false},
+		{0, "149.154.167.51:443", false},
+		{65534, "", true},
 		{999, "", true},
 	}
 	for _, tc := range cases {
@@ -33,6 +33,22 @@ func TestResolveAddrMainAndMedia(t *testing.T) {
 	}
 }
 
+func TestResolveAddrMediaDistinctFromMain(t *testing.T) {
+	for _, id := range []int{1, 2, 3, 4, 5} {
+		main, err := ResolveAddr(id, "")
+		if err != nil {
+			t.Fatalf("main %d: %v", id, err)
+		}
+		media, err := ResolveAddr(-id, "")
+		if err != nil {
+			t.Fatalf("media %d: %v", id, err)
+		}
+		if main == media {
+			t.Errorf("DC %d: media IP совпадает с main (%s) — нужна отдельная таблица", id, main)
+		}
+	}
+}
+
 func TestResolveAddrBackendOverride(t *testing.T) {
 	addr, err := ResolveAddr(-2, "10.0.0.1:443")
 	if err != nil {
@@ -44,7 +60,6 @@ func TestResolveAddrBackendOverride(t *testing.T) {
 }
 
 func TestResolveAddrSignedBoundary(t *testing.T) {
-	// int16(-2) как uint16 == 65534 — не должен резолвиться.
 	if _, err := ResolveAddr(65534, ""); err == nil {
 		t.Fatal("65534 не должен быть валидным DC id")
 	}
