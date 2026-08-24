@@ -69,6 +69,10 @@ sudo systemctl restart phantom-proxy
 2. Handshake: `PHRP` + nonce(16) + HMAC-SHA256(psk, nonce)(32) + dcID(2) + clientIPv4(4) + clientPort(2)
 3. Фреймы: `[4 byte len][AES-GCM ciphertext]`
 
+`dcID` — **signed int16** (big-endian), как в obfuscated2 / TDLib:
+- `2` — main DC2
+- `-2` — MEDIA DC2 (на проводе `0xFFFE`; читать как int16, не uint16 → `65534`)
+
 ## Рекомендации
 
 - RU Front: `fallback.honeypot: true`, `fronting.action: splice`
